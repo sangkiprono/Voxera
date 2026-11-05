@@ -1,5 +1,9 @@
+from datetime import datetime, time, timedelta
+
 from django.db import transaction
 from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
+from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -7,7 +11,9 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from polls.models import Poll
+from polls.models import PollResponse
 from surveys.models import Survey
+from surveys.models import SurveyResponse
 from notifications.models import Notification
 
 from .models import Membership, Organization
@@ -110,6 +116,39 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             active=Count("id", filter=Q(status=Survey.Status.ACTIVE), distinct=True),
             responses=Count("responses", distinct=True),
         )
+        today = timezone.localdate()
+        start_date = today - timedelta(days=29)
+        start_at = timezone.make_aware(datetime.combine(start_date, time.min))
+        poll_activity = {
+            entry["day"]: entry["count"]
+            for entry in PollResponse.objects.filter(
+                poll__organization=organization, submitted_at__gte=start_at
+            )
+            .annotate(day=TruncDate("submitted_at"))
+            .values("day")
+            .annotate(count=Count("id"))
+        }
+        survey_activity = {
+            entry["day"]: entry["count"]
+            for entry in SurveyResponse.objects.filter(
+                survey__organization=organization, submitted_at__gte=start_at
+            )
+            .annotate(day=TruncDate("submitted_at"))
+            .values("day")
+            .annotate(count=Count("id"))
+        }
+        daily_activity = [
+            {
+                "date": (start_date + timedelta(days=offset)).isoformat(),
+                "poll_responses": poll_activity.get(
+                    start_date + timedelta(days=offset), 0
+                ),
+                "survey_responses": survey_activity.get(
+                    start_date + timedelta(days=offset), 0
+                ),
+            }
+            for offset in range(30)
+        ]
         return Response(
             {
                 "member_count": organization.memberships.count(),
@@ -119,5 +158,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 "survey_count": survey_stats["total"],
                 "active_survey_count": survey_stats["active"],
                 "survey_response_count": survey_stats["responses"],
+                "daily_activity": daily_activity,
             }
         )

@@ -6,8 +6,9 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 
 - Email-based account registration, sign-in, sign-out, and profile editing.
 - Organization workspaces with owner, administrator, creator, and member roles.
-- Organization dashboards with member, poll, survey, and response totals (owners and administrators only).
+- Organization dashboards with member, poll, survey, and response totals plus daily poll/survey response trends over 30 days (owners and administrators only).
 - In-app notifications for workspace additions and activity comments, with recipient-only inboxes and read controls.
+- Optional queued SMTP email delivery for those notifications, with recorded failures, a five-attempt retry limit, and a management command for a single scheduled worker.
 - Low-stakes organization election setup: admin-created drafts, active-member eligibility snapshots at nomination opening, member self-nominations, and nomination close/cancel controls. Ballot casting is intentionally not implemented.
 - Public and restricted opinion polls, one response per signed-in account, and aggregate results.
 - Surveys with single- and multi-choice, text, and 1–5 rating questions; response collection; and manager-only reports.
@@ -16,7 +17,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Responsive discovery and management interfaces.
 - PostgreSQL support, production-aware Django settings, Nginx routing, Docker Compose, and CI for PostgreSQL, Django tests, and the React build.
 
-Election ballot casting, email notification delivery, subscriptions, and advanced analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous. The eligibility roster is a point-in-time snapshot; no ballot or anonymity protocol is provided.
+Election ballot casting, subscriptions, and additional analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous. The eligibility roster is a point-in-time snapshot; no ballot or anonymity protocol is provided.
 
 ## Start locally
 
@@ -60,6 +61,8 @@ Vite proxies `/api` requests to Django. Open the local URL printed by Vite.
 4. Open `http://localhost:8080`; Django admin is at `/admin/`.
 
 The bundled Compose configuration is a local/self-hosted starting point and exposes HTTP. Production deployments must terminate HTTPS at a trusted reverse proxy, set `DJANGO_SECURE_SSL_REDIRECT=true`, use secrets supplied by the deployment platform, restrict `DJANGO_ALLOWED_HOSTS`, and review the deployment checklist, privacy obligations, retention policy, and election security design before accepting real election ballots.
+
+To send notification emails, set `NOTIFICATIONS_EMAIL_ENABLED=true`, configure SMTP credentials and `DEFAULT_FROM_EMAIL`, then schedule a single backend worker to run `python manage.py send_notification_emails`. Delivery failures are retained and retried up to five times; notifications continue to work in-app if email delivery is unavailable.
 
 ## Tests and checks
 

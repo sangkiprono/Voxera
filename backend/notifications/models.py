@@ -76,3 +76,31 @@ class Notification(models.Model):
                 name="notification_has_one_target",
             )
         ]
+
+
+class NotificationEmail(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENDING = "sending", "Sending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    notification = models.OneToOneField(
+        Notification, on_delete=models.CASCADE, related_name="email_delivery"
+    )
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_error = models.CharField(max_length=500, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+        indexes = [
+            models.Index(
+                fields=("status", "created_at"), name="notification_email_queue_idx"
+            )
+        ]

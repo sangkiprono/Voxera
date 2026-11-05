@@ -501,6 +501,14 @@ function App() {
   }
 
   const greetingName = user?.first_name || "there";
+  const maxDailyResponses = organizationAnalytics
+    ? Math.max(
+        1,
+        ...organizationAnalytics.daily_activity.map(
+          (day) => day.poll_responses + day.survey_responses,
+        ),
+      )
+    : 1;
 
   return (
     <div className="app-shell">
@@ -1056,6 +1064,33 @@ function App() {
               <div><span>Poll responses</span><strong>{organizationAnalytics.poll_response_count}</strong></div>
               <div><span>Surveys</span><strong>{organizationAnalytics.active_survey_count} active / {organizationAnalytics.survey_count} total</strong></div>
               <div><span>Survey responses</span><strong>{organizationAnalytics.survey_response_count}</strong></div>
+              <div className="analytics-chart-wrap">
+                <span className="analytics-chart-title">Responses · last 30 days</span>
+                <div className="analytics-chart" role="img" aria-label="Daily poll and survey response counts for the last 30 days">
+                  {organizationAnalytics.daily_activity.map((day) => {
+                    const pollHeight = (day.poll_responses / maxDailyResponses) * 100;
+                    const surveyHeight = (day.survey_responses / maxDailyResponses) * 100;
+                    return (
+                      <div className="analytics-day" key={day.date} title={`${day.date}: ${day.poll_responses} poll, ${day.survey_responses} survey responses`}>
+                        <span className="analytics-bar-group">
+                          <span
+                            className={day.poll_responses ? "analytics-bar poll-bar has-activity" : "analytics-bar poll-bar"}
+                            style={{ height: `${pollHeight}%` }}
+                          />
+                          <span
+                            className={day.survey_responses ? "analytics-bar survey-bar has-activity" : "analytics-bar survey-bar"}
+                            style={{ height: `${surveyHeight}%` }}
+                          />
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="analytics-legend">
+                  <span><i className="poll-legend" /> Polls</span>
+                  <span><i className="survey-legend" /> Surveys</span>
+                </div>
+              </div>
             </section>
           )}
           <div className="member-list">

@@ -92,6 +92,11 @@ export interface OrganizationAnalytics {
   survey_count: number;
   active_survey_count: number;
   survey_response_count: number;
+  daily_activity: Array<{
+    date: string;
+    poll_responses: number;
+    survey_responses: number;
+  }>;
 }
 
 export interface ElectionCandidate {

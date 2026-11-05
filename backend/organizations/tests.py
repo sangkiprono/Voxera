@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from polls.models import Poll, PollOption, PollResponse
@@ -146,6 +147,17 @@ class OrganizationApiTests(APITestCase):
         self.assertEqual(analytics.data["survey_count"], 1)
         self.assertEqual(analytics.data["active_survey_count"], 1)
         self.assertEqual(analytics.data["survey_response_count"], 1)
+        self.assertEqual(len(analytics.data["daily_activity"]), 30)
+        self.assertEqual(
+            analytics.data["daily_activity"][-1]["date"],
+            timezone.localdate().isoformat(),
+        )
+        self.assertEqual(
+            analytics.data["daily_activity"][-1]["poll_responses"], 1
+        )
+        self.assertEqual(
+            analytics.data["daily_activity"][-1]["survey_responses"], 1
+        )
 
         Membership.objects.create(
             organization=organization,

@@ -1,9 +1,15 @@
+import smtplib
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
+from django.core import mail
+from django.core.management import call_command
+from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from organizations.models import Organization
 
-from .models import Notification
+from .models import Notification, NotificationEmail
 
 User = get_user_model()
 
@@ -70,3 +76,52 @@ class NotificationApiTests(APITestCase):
         self.assertIsNotNone(
             Notification.objects.get(pk=another.pk).read_at
         )
+
+    @override_settings(
+        NOTIFICATIONS_EMAIL_ENABLED=True,
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="Voxera <noreply@example.com>",
+    )
+    def test_email_delivery_command_sends_queued_notification(self):
+        notification = Notification.objects.create(
+            recipient=self.member,
+            actor=self.owner,
+            kind=Notification.Kind.WORKSPACE_ADDED,
+            message="You were added to Northstar",
+            organization=self.organization,
+        )
+        delivery = NotificationEmail.objects.get(notification=notification)
+
+        call_command("send_notification_emails", verbosity=0)
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, NotificationEmail.Status.SENT)
+        self.assertEqual(delivery.attempts, 1)
+        self.assertIsNotNone(delivery.sent_at)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.member.email])
+        self.assertIn("You were added to Northstar", mail.outbox[0].body)
+
+    @override_settings(
+        NOTIFICATIONS_EMAIL_ENABLED=True,
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    )
+    def test_email_delivery_failure_is_recorded_and_retryable(self):
+        notification = Notification.objects.create(
+            recipient=self.member,
+            actor=self.owner,
+            kind=Notification.Kind.WORKSPACE_ADDED,
+            message="You were added to Northstar",
+            organization=self.organization,
+        )
+        delivery = NotificationEmail.objects.get(notification=notification)
+        with patch(
+            "notifications.management.commands.send_notification_emails.send_mail",
+            side_effect=smtplib.SMTPException("SMTP unavailable"),
+        ):
+            call_command("send_notification_emails", verbosity=0)
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, NotificationEmail.Status.FAILED)
+        self.assertEqual(delivery.attempts, 1)
+        self.assertIn("SMTP unavailable", delivery.last_error)
