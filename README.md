@@ -8,6 +8,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Organization workspaces with owner, administrator, creator, and member roles.
 - Organization dashboards with member, poll, survey, and response totals (owners and administrators only).
 - In-app notifications for workspace additions and activity comments, with recipient-only inboxes and read controls.
+- Low-stakes organization election setup: admin-created drafts, active-member eligibility snapshots at nomination opening, member self-nominations, and nomination close/cancel controls. Ballot casting is intentionally not implemented.
 - Public and restricted opinion polls, one response per signed-in account, and aggregate results.
 - Surveys with single- and multi-choice, text, and 1–5 rating questions; response collection; and manager-only reports.
 - CSV downloads for poll results and manager-authorized survey reports, with spreadsheet formula injection protection.
@@ -15,7 +16,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Responsive discovery and management interfaces.
 - PostgreSQL support, production-aware Django settings, Nginx routing, Docker Compose, and CI for PostgreSQL, Django tests, and the React build.
 
-Formal organizational elections and ballot casting, email notification delivery, subscriptions, and advanced analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous.
+Election ballot casting, email notification delivery, subscriptions, and advanced analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous. The eligibility roster is a point-in-time snapshot; no ballot or anonymity protocol is provided.
 
 ## Start locally
 
@@ -88,5 +89,6 @@ GitHub Actions runs the Django suite against PostgreSQL and builds the React app
 - `GET /api/v1/polls/{id}/export-results/`
 - `GET /api/v1/health/` (database connectivity check)
 - `GET /api/v1/notifications/`; `GET /api/v1/notifications/unread-count/`; `POST /api/v1/notifications/{id}/read/`; `POST /api/v1/notifications/read-all/` (authenticated recipient only)
+- `GET|POST /api/v1/elections/`; `GET|PATCH|DELETE /api/v1/elections/{id}/`; `POST /api/v1/elections/{id}/open-nominations/`; `POST /api/v1/elections/{id}/nominate/`; `POST /api/v1/elections/{id}/close-nominations/`; `POST /api/v1/elections/{id}/cancel/`
 
 Protected API endpoints use DRF token authentication. Public activity discovery intentionally returns only published public activities; private activity and reporting access is explicitly scoped to authorized organization members and managers.

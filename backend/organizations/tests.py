@@ -92,6 +92,27 @@ class OrganizationApiTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertTrue(Organization.objects.filter(pk=organization.pk).exists())
 
+    def test_workspace_with_election_cannot_be_deleted(self):
+        from elections.models import Election
+
+        organization = Organization.objects.create(
+            name="Northstar", slug="northstar", created_by=self.owner
+        )
+        Membership.objects.create(
+            organization=organization, user=self.owner, role=Membership.Role.OWNER
+        )
+        Election.objects.create(
+            organization=organization,
+            title="Board election",
+            created_by=self.owner,
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.delete("/api/v1/organizations/northstar/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Organization.objects.filter(pk=organization.pk).exists())
+
     def test_workspace_analytics_are_scoped_to_organization_administrators(self):
         organization = Organization.objects.create(
             name="Northstar", slug="northstar", created_by=self.owner

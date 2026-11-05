@@ -159,6 +159,20 @@ h1 { margin-bottom: 9px; color: #282640; font: 700 clamp(25px,3vw,34px)/1.2 "Seg
 .member-form-row { align-items: end; }
 .member-submit { min-height: 38px; margin-bottom: 0; font-size: 10px; }
 .form-hint { color: #a0a0ad; font-size: 9px; }
+.workspace-elections { display: grid; gap: 10px; padding: 14px 0; border-bottom: 1px solid #f0eff5; }
+.workspace-elections > h3 { margin: 0; color: #4a4861; font-size: 11px; }
+.election-disclaimer { margin: 0; color: #9c7780; font-size: 8px; line-height: 1.5; }
+.election-item { display: grid; gap: 7px; padding: 10px; border: 1px solid #efedf5; border-radius: 8px; background: #fff; }
+.election-item-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #4a4861; font-size: 10px; }
+.election-status { color: #8c899a; font-size: 8px; }
+.election-nominations { color: #6254d9; }
+.election-ready { color: #a06d22; }
+.election-item > p, .election-item > small { margin: 0; color: #8e8c9d; font-size: 8px; line-height: 1.5; }
+.election-candidate { display: grid; gap: 3px; padding-top: 6px; border-top: 1px solid #f3f2f7; color: #5e5b72; font-size: 8px; }
+.election-candidate span { color: #898799; line-height: 1.5; }
+.election-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.election-form { display: grid; gap: 9px; padding: 11px; border: 1px solid #eeecf5; border-radius: 8px; background: #faf9ff; }
+.election-form .results-button { justify-self: start; }
 .workspace-analytics { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid #f0eff5; }
 .workspace-analytics h3 { margin: 0 0 2px; color: #4a4861; font-size: 10px; }
 .workspace-analytics > div { display: flex; justify-content: space-between; gap: 12px; color: #878597; font-size: 9px; }

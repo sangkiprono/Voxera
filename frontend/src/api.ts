@@ -94,6 +94,30 @@ export interface OrganizationAnalytics {
   survey_response_count: number;
 }
 
+export interface ElectionCandidate {
+  id: number;
+  user: number;
+  name: string;
+  statement: string;
+  nominated_at: string;
+}
+
+export interface Election {
+  id: number;
+  organization: number;
+  organization_name: string;
+  title: string;
+  description: string;
+  status: "draft" | "nominations" | "ready" | "cancelled";
+  created_by: number;
+  created_at: string;
+  nominations_opened_at: string | null;
+  nominations_closed_at: string | null;
+  eligible_voter_count: number;
+  is_eligible: boolean;
+  candidates: ElectionCandidate[];
+}
+
 export type SurveyQuestionType =
   | "single_choice"
   | "multiple_choice"
@@ -362,6 +386,46 @@ export const api = {
 
   organizationAnalytics(slug: string) {
     return request<OrganizationAnalytics>(`/organizations/${slug}/analytics/`);
+  },
+
+  elections() {
+    return request<Election[]>("/elections/");
+  },
+
+  createElection(payload: {
+    organization: number;
+    title: string;
+    description: string;
+  }) {
+    return request<Election>("/elections/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  openElectionNominations(electionId: number) {
+    return request<Election>(`/elections/${electionId}/open-nominations/`, {
+      method: "POST",
+    });
+  },
+
+  closeElectionNominations(electionId: number) {
+    return request<Election>(`/elections/${electionId}/close-nominations/`, {
+      method: "POST",
+    });
+  },
+
+  cancelElection(electionId: number) {
+    return request<Election>(`/elections/${electionId}/cancel/`, {
+      method: "POST",
+    });
+  },
+
+  nominateForElection(electionId: number, statement: string) {
+    return request<ElectionCandidate>(`/elections/${electionId}/nominate/`, {
+      method: "POST",
+      body: JSON.stringify({ statement }),
+    });
   },
 
   addMember(slug: string, email: string, role: string) {

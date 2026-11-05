@@ -58,9 +58,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         self._require_admin(instance)
-        if instance.polls.exists() or instance.surveys.exists():
+        if (
+            instance.polls.exists()
+            or instance.surveys.exists()
+            or instance.elections.exists()
+        ):
             raise ValidationError(
-                "A workspace with polls or surveys cannot be deleted. Archive it instead."
+                "A workspace with activities or elections cannot be deleted. Archive it instead."
             )
         instance.delete()
 

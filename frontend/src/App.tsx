@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   api,
+  type Election,
   type OrganizationAnalytics,
   type Organization,
   type OrganizationMember,
@@ -37,6 +38,7 @@ function App() {
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
   const [organizationAnalytics, setOrganizationAnalytics] = useState<OrganizationAnalytics | null>(null);
+  const [organizationElections, setOrganizationElections] = useState<Election[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -252,14 +254,18 @@ function App() {
     setBusy(true);
     try {
       const canViewAnalytics = ["owner", "admin"].includes(organization.role);
-      const [members, analytics] = await Promise.all([
+      const [members, analytics, elections] = await Promise.all([
         api.members(organization.slug),
         canViewAnalytics
           ? api.organizationAnalytics(organization.slug)
           : Promise.resolve(null),
+        api.elections(),
       ]);
       setOrganizationMembers(members);
       setOrganizationAnalytics(analytics);
+      setOrganizationElections(
+        elections.filter((election) => election.organization === organization.id),
+      );
       setActiveOrganization(organization);
     } catch (memberError) {
       setError(
@@ -315,6 +321,77 @@ function App() {
           ? "surveys"
           : "discover",
     );
+  }
+
+  async function refreshOrganizationElections() {
+    if (!activeOrganization) return;
+    const elections = await api.elections();
+    setOrganizationElections(
+      elections.filter(
+        (election) => election.organization === activeOrganization.id,
+      ),
+    );
+  }
+
+  async function handleCreateElection(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeOrganization) return;
+    const form = event.currentTarget;
+    const formData = new FormData(event.currentTarget);
+    setBusy(true);
+    setError("");
+    try {
+      await api.createElection({
+        organization: activeOrganization.id,
+        title: String(formData.get("election_title")).trim(),
+        description: String(formData.get("election_description")).trim(),
+      });
+      await refreshOrganizationElections();
+      setNotice("Election draft created.");
+      form.reset();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not create election.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateElection(
+    election: Election,
+    action: "open" | "close" | "cancel" | "nominate",
+  ) {
+    setBusy(true);
+    setError("");
+    try {
+      if (action === "open") await api.openElectionNominations(election.id);
+      else if (action === "close") await api.closeElectionNominations(election.id);
+      else if (action === "cancel") await api.cancelElection(election.id);
+      else {
+        await api.nominateForElection(election.id, "");
+      }
+      await refreshOrganizationElections();
+      setNotice(
+        action === "nominate"
+          ? "You are nominated."
+          : action === "open"
+            ? "Nominations are open."
+            : action === "close"
+              ? "Nominations are closed. Voting is not available."
+              : "Election cancelled.",
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not update election.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleAddMember(event: React.FormEvent<HTMLFormElement>) {
@@ -990,6 +1067,96 @@ function App() {
               </div>
             ))}
           </div>
+          <section className="workspace-elections">
+            <h3>Organization elections</h3>
+            <p className="election-disclaimer">
+              Low-stakes setup only. Ballot casting and anonymous voting are not implemented.
+            </p>
+            {organizationElections.map((election) => {
+              const isManager = ["owner", "admin"].includes(activeOrganization.role);
+              const alreadyCandidate = election.candidates.some(
+                (candidate) => candidate.user === user?.id,
+              );
+              return (
+                <article className="election-item" key={election.id}>
+                  <div className="election-item-heading">
+                    <strong>{election.title}</strong>
+                    <span className={`election-status election-${election.status}`}>
+                      {election.status === "nominations"
+                        ? "Nominations open"
+                        : election.status === "ready"
+                          ? "Nominations closed"
+                          : election.status}
+                    </span>
+                  </div>
+                  {election.description && <p>{election.description}</p>}
+                  {election.status !== "draft" && (
+                    <small>{election.eligible_voter_count} eligible members at opening</small>
+                  )}
+                  {election.candidates.map((candidate) => (
+                    <div className="election-candidate" key={candidate.id}>
+                      <strong>{candidate.name}</strong>
+                      {candidate.statement && <span>{candidate.statement}</span>}
+                    </div>
+                  ))}
+                  <div className="election-actions">
+                    {isManager && election.status === "draft" && (
+                      <button
+                        className="results-button"
+                        disabled={busy}
+                        onClick={() => void updateElection(election, "open")}
+                      >
+                        Open nominations
+                      </button>
+                    )}
+                    {election.status === "nominations" &&
+                      election.is_eligible &&
+                      !alreadyCandidate && (
+                        <button
+                          className="results-button"
+                          disabled={busy}
+                          onClick={() => void updateElection(election, "nominate")}
+                        >
+                          Nominate yourself
+                        </button>
+                      )}
+                    {isManager && election.status === "nominations" && (
+                      <button
+                        className="results-button"
+                        disabled={busy}
+                        onClick={() => void updateElection(election, "close")}
+                      >
+                        Close nominations
+                      </button>
+                    )}
+                    {isManager &&
+                      ["draft", "nominations"].includes(election.status) && (
+                        <button
+                          className="results-button"
+                          disabled={busy}
+                          onClick={() => void updateElection(election, "cancel")}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                  </div>
+                </article>
+              );
+            })}
+            {["owner", "admin"].includes(activeOrganization.role) && (
+              <form className="election-form" onSubmit={(event) => void handleCreateElection(event)}>
+                <Field label="Election name">
+                  <input name="election_title" maxLength={180} required />
+                </Field>
+                <Field label="Description (optional)">
+                  <textarea name="election_description" rows={2} maxLength={2000} />
+                </Field>
+                <button className="results-button" disabled={busy}>
+                  Create election draft
+                </button>
+              </form>
+            )}
+          </section>
           {["owner", "admin"].includes(activeOrganization.role) && (
             <form className="member-form" onSubmit={(event) => void handleAddMember(event)}>
               <p className="field-label">Add someone with an existing Voxera account</p>
