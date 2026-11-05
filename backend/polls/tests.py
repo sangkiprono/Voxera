@@ -51,6 +51,38 @@ class PollApiTests(APITestCase):
         self.assertEqual(results.data["total_responses"], 1)
         self.assertEqual(results.data["options"][0]["percentage"], 100)
 
+    def test_results_export_is_csv_and_escapes_spreadsheet_formulas(self):
+        self.poll.title = "=1+1"
+        self.poll.save(update_fields=["title"])
+
+        response = self.client.get(
+            f"/api/v1/polls/{self.poll.id}/export-results/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response["Content-Type"].startswith("text/csv"))
+        self.assertIn(b"'=1+1", response.content)
+
+    def test_private_results_export_requires_workspace_access(self):
+        organization = Organization.objects.create(
+            name="Northstar", slug="northstar", created_by=self.owner
+        )
+        Membership.objects.create(
+            organization=organization,
+            user=self.owner,
+            role=Membership.Role.OWNER,
+        )
+        self.poll.organization = organization
+        self.poll.visibility = Poll.Visibility.PRIVATE
+        self.poll.save(update_fields=["organization", "visibility"])
+        self.client.force_authenticate(self.voter)
+
+        response = self.client.get(
+            f"/api/v1/polls/{self.poll.id}/export-results/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_response_rejects_an_option_from_a_different_poll(self):
         another_poll = Poll.objects.create(
             title="Another poll", question="Choose one", created_by=self.owner

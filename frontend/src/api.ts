@@ -157,6 +157,37 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function downloadCsv(path: string, filename: string): Promise<void> {
+  const headers = new Headers();
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  if (token) {
+    headers.set("Authorization", `Token ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, { headers });
+  if (!response.ok) {
+    let message = `Request failed (${response.status}).`;
+    try {
+      const body: unknown = await response.json();
+      if (typeof body === "object" && body !== null && "detail" in body) {
+        message = String(body.detail);
+      }
+    } catch {
+      message = `Request failed (${response.status}).`;
+    }
+    throw new Error(message);
+  }
+
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const api = {
   async register(payload: {
     email: string;
@@ -223,6 +254,13 @@ export const api = {
     return request<PollResults>(`/polls/${pollId}/results/`);
   },
 
+  exportPollResults(pollId: number) {
+    return downloadCsv(
+      `/polls/${pollId}/export-results/`,
+      `poll-${pollId}-results.csv`,
+    );
+  },
+
   organizations() {
     return request<Organization[]>("/organizations/");
   },
@@ -284,5 +322,12 @@ export const api = {
 
   surveyReport(surveyId: number) {
     return request<SurveyReport>(`/surveys/${surveyId}/report/`);
+  },
+
+  exportSurveyReport(surveyId: number) {
+    return downloadCsv(
+      `/surveys/${surveyId}/export-report/`,
+      `survey-${surveyId}-report.csv`,
+    );
   },
 };

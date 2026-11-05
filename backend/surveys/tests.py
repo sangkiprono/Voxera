@@ -157,6 +157,32 @@ class SurveyApiTests(APITestCase):
             "A later afternoon would be great.",
         )
 
+    def test_manager_can_export_csv_without_respondent_identity(self):
+        response_record = SurveyResponse.objects.create(
+            survey=self.survey, user=self.respondent
+        )
+        SurveyAnswer.objects.create(
+            response=response_record,
+            question=self.feedback_question,
+            text="=1+1",
+        )
+        self.client.force_authenticate(self.owner)
+
+        export = self.client.get(
+            f"/api/v1/surveys/{self.survey.id}/export-report/"
+        )
+
+        self.assertEqual(export.status_code, 200)
+        self.assertTrue(export["Content-Type"].startswith("text/csv"))
+        self.assertIn(b"'=1+1", export.content)
+        self.assertNotIn(self.respondent.email.encode(), export.content)
+
+        self.client.force_authenticate(self.respondent)
+        denied = self.client.get(
+            f"/api/v1/surveys/{self.survey.id}/export-report/"
+        )
+        self.assertEqual(denied.status_code, 403)
+
     def test_required_answers_and_answers_from_another_survey_are_rejected(self):
         other_survey = Survey.objects.create(
             title="Other survey", created_by=self.owner

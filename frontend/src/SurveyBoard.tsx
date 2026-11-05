@@ -179,6 +179,23 @@ export default function SurveyBoard({
     }
   }
 
+  async function exportReport(surveyId: number) {
+    onBusyChange(true);
+    onError("");
+    try {
+      await api.exportSurveyReport(surveyId);
+      onNotice("Survey report downloaded.");
+    } catch (requestError) {
+      onError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not download survey report.",
+      );
+    } finally {
+      onBusyChange(false);
+    }
+  }
+
   return (
     <>
       <section className="section-heading">
@@ -334,6 +351,15 @@ export default function SurveyBoard({
                     >
                       {isExpanded ? "Back to questions" : "View report"}{" "}
                       <span aria-hidden="true">{isExpanded ? "↗" : "→"}</span>
+                    </button>
+                  )}
+                  {canViewReport && isExpanded && report && (
+                    <button
+                      className="results-button"
+                      disabled={busy}
+                      onClick={() => void exportReport(survey.id)}
+                    >
+                      Download CSV
                     </button>
                   )}
                   {!isClosed && !survey.has_responded && (

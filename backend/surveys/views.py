@@ -1,3 +1,6 @@
+import csv
+
+from django.http import HttpResponse
 from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -7,6 +10,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from organizations.models import Membership
+from config.exports import safe_csv_cell
 
 from .models import Survey, SurveyQuestion, SurveyResponse as SurveyResponseRecord
 from .serializers import (
@@ -55,6 +59,7 @@ class SurveyViewSet(viewsets.ModelViewSet):
             "destroy",
             "respond",
             "report",
+            "export_report",
         ):
             return [permissions.IsAuthenticated()]
         return [permissions.AllowAny()]
@@ -216,6 +221,78 @@ class SurveyViewSet(viewsets.ModelViewSet):
                 "questions": question_reports,
             }
         )
+
+    @action(detail=True, methods=["get"], url_path="export-report")
+    def export_report(self, request, pk=None):
+        survey = self.get_object()
+        self._require_manager(survey)
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = (
+            f'attachment; filename="survey-{survey.id}-report.csv"'
+        )
+        writer = csv.writer(response)
+        writer.writerow(
+            ["Survey", "Question", "Type", "Responses", "Answer", "Value", "Submitted at"]
+        )
+        for question in survey.questions.prefetch_related(
+            "options__answers", "answers__response"
+        ):
+            answers = question.answers.all()
+            response_count = answers.count()
+            if question.question_type in (
+                SurveyQuestion.QuestionType.SINGLE_CHOICE,
+                SurveyQuestion.QuestionType.MULTIPLE_CHOICE,
+            ):
+                for option in question.options.all():
+                    writer.writerow(
+                        [
+                            safe_csv_cell(survey.title),
+                            safe_csv_cell(question.text),
+                            question.question_type,
+                            response_count,
+                            safe_csv_cell(option.text),
+                            option.answers.count(),
+                            "",
+                        ]
+                    )
+            elif question.question_type == SurveyQuestion.QuestionType.RATING:
+                writer.writerow(
+                    [
+                        safe_csv_cell(survey.title),
+                        safe_csv_cell(question.text),
+                        question.question_type,
+                        response_count,
+                        "Average",
+                        self._average_rating(answers) or "",
+                        "",
+                    ]
+                )
+                for rating in range(1, 6):
+                    writer.writerow(
+                        [
+                            safe_csv_cell(survey.title),
+                            safe_csv_cell(question.text),
+                            question.question_type,
+                            response_count,
+                            f"{rating} out of 5",
+                            answers.filter(rating=rating).count(),
+                            "",
+                        ]
+                    )
+            else:
+                for answer in answers.exclude(text=""):
+                    writer.writerow(
+                        [
+                            safe_csv_cell(survey.title),
+                            safe_csv_cell(question.text),
+                            question.question_type,
+                            response_count,
+                            safe_csv_cell(answer.text),
+                            "",
+                            answer.response.submitted_at.isoformat(),
+                        ]
+                    )
+        return response
 
     @staticmethod
     def _average_rating(answers):

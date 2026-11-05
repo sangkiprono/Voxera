@@ -1,5 +1,8 @@
+import csv
+
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -7,6 +10,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from organizations.models import Membership
+from config.exports import safe_csv_cell
 
 from .models import Poll, PollOption, PollResponse
 
@@ -258,31 +262,58 @@ class PollViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="results")
     def results(self, request, pk=None):
         poll = self.get_object()
-        if poll.visibility == Poll.Visibility.PRIVATE and not request.user.is_authenticated:
-            raise PermissionDenied("Sign in to view these results.")
-        if poll.visibility == Poll.Visibility.PRIVATE:
-            self._require_result_access(poll, request.user)
+        self._require_result_access_for_visibility(poll, request.user)
+        return Response(self._result_data(poll))
 
+    @action(detail=True, methods=["get"], url_path="export-results")
+    def export_results(self, request, pk=None):
+        poll = self.get_object()
+        self._require_result_access_for_visibility(poll, request.user)
+        result = self._result_data(poll)
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = (
+            f'attachment; filename="poll-{poll.id}-results.csv"'
+        )
+        writer = csv.writer(response)
+        writer.writerow(["Poll", "Question", "Option", "Votes", "Percentage"])
+        for option in result["options"]:
+            writer.writerow(
+                [
+                    safe_csv_cell(poll.title),
+                    safe_csv_cell(poll.question),
+                    safe_csv_cell(option["text"]),
+                    option["votes"],
+                    option["percentage"],
+                ]
+            )
+        return response
+
+    def _require_result_access_for_visibility(self, poll, user):
+        if poll.visibility == Poll.Visibility.PRIVATE:
+            if not user.is_authenticated:
+                raise PermissionDenied("Sign in to view these results.")
+            self._require_result_access(poll, user)
+
+    @staticmethod
+    def _result_data(poll):
         options = poll.options.annotate(vote_count=Count("responses"))
         total = sum(option.vote_count for option in options)
-        return Response(
-            {
-                "poll_id": poll.id,
-                "question": poll.question,
-                "total_responses": total,
-                "options": [
-                    {
-                        "id": option.id,
-                        "text": option.text,
-                        "votes": option.vote_count,
-                        "percentage": round(option.vote_count * 100 / total, 1)
-                        if total
-                        else 0,
-                    }
-                    for option in options
-                ],
-            }
-        )
+        return {
+            "poll_id": poll.id,
+            "question": poll.question,
+            "total_responses": total,
+            "options": [
+                {
+                    "id": option.id,
+                    "text": option.text,
+                    "votes": option.vote_count,
+                    "percentage": round(option.vote_count * 100 / total, 1)
+                    if total
+                    else 0,
+                }
+                for option in options
+            ],
+        }
 
     def _require_result_access(self, poll, user):
         if poll.created_by_id == user.id:

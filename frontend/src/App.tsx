@@ -293,6 +293,23 @@ function App() {
     }
   }
 
+  async function exportPollResults(pollId: number) {
+    setBusy(true);
+    setError("");
+    try {
+      await api.exportPollResults(pollId);
+      setNotice("Poll results downloaded.");
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "Could not download poll results.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openCreatePoll() {
     if (!user) {
       setRegistering(true);
@@ -606,6 +623,13 @@ function App() {
                                 </div>
                               ))}
                               <p className="results-footnote">{result.total_responses} total responses</p>
+                              <button
+                                className="results-button"
+                                disabled={busy}
+                                onClick={() => void exportPollResults(poll.id)}
+                              >
+                                Download CSV
+                              </button>
                             </div>
                           ) : (
                             <fieldset className="option-list" disabled={Boolean(isClosed)}>
