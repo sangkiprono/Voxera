@@ -1,6 +1,9 @@
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
+from polls.models import Poll, PollOption, PollResponse
+from surveys.models import Survey, SurveyResponse
+
 from .models import Membership, Organization
 
 User = get_user_model()
@@ -63,8 +66,6 @@ class OrganizationApiTests(APITestCase):
         self.assertEqual(denied.status_code, 403)
 
     def test_workspace_with_activities_cannot_be_deleted(self):
-        from surveys.models import Survey
-
         organization = Organization.objects.create(
             name="Northstar", slug="northstar", created_by=self.owner
         )
@@ -82,3 +83,48 @@ class OrganizationApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertTrue(Organization.objects.filter(pk=organization.pk).exists())
+
+    def test_workspace_analytics_are_scoped_to_organization_administrators(self):
+        organization = Organization.objects.create(
+            name="Northstar", slug="northstar", created_by=self.owner
+        )
+        Membership.objects.create(
+            organization=organization, user=self.owner, role=Membership.Role.OWNER
+        )
+        poll = Poll.objects.create(
+            title="Team lunch",
+            question="Where should we go?",
+            created_by=self.owner,
+            organization=organization,
+        )
+        option = PollOption.objects.create(poll=poll, text="Cafe", position=0)
+        PollResponse.objects.create(poll=poll, user=self.other_user, option=option)
+        survey = Survey.objects.create(
+            title="Team feedback",
+            created_by=self.owner,
+            organization=organization,
+        )
+        SurveyResponse.objects.create(survey=survey, user=self.other_user)
+        url = "/api/v1/organizations/northstar/analytics/"
+
+        self.client.force_authenticate(self.owner)
+        analytics = self.client.get(url)
+        self.assertEqual(analytics.status_code, 200)
+        self.assertEqual(analytics.data["member_count"], 1)
+        self.assertEqual(analytics.data["poll_count"], 1)
+        self.assertEqual(analytics.data["active_poll_count"], 1)
+        self.assertEqual(analytics.data["poll_response_count"], 1)
+        self.assertEqual(analytics.data["survey_count"], 1)
+        self.assertEqual(analytics.data["active_survey_count"], 1)
+        self.assertEqual(analytics.data["survey_response_count"], 1)
+
+        Membership.objects.create(
+            organization=organization,
+            user=self.other_user,
+            role=Membership.Role.MEMBER,
+        )
+        self.client.force_authenticate(self.other_user)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        Membership.objects.filter(organization=organization, user=self.other_user).delete()
+        self.assertEqual(self.client.get(url).status_code, 404)

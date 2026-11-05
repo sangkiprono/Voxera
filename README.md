@@ -6,6 +6,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 
 - Email-based account registration, sign-in, sign-out, and profile editing.
 - Organization workspaces with owner, administrator, creator, and member roles.
+- Organization dashboards with member, poll, survey, and response totals (owners and administrators only).
 - Public and restricted opinion polls, one response per signed-in account, and aggregate results.
 - Surveys with single- and multi-choice, text, and 1–5 rating questions; response collection; and manager-only reports.
 - CSV downloads for poll results and manager-authorized survey reports, with spreadsheet formula injection protection.
@@ -77,7 +78,7 @@ GitHub Actions runs the Django suite against PostgreSQL and builds the React app
 ## API overview
 
 - `POST /api/v1/auth/register/`, `POST /api/v1/auth/login/`, `POST /api/v1/auth/logout/`, `GET|PATCH /api/v1/auth/me/`
-- `GET|POST /api/v1/organizations/`; `GET|PATCH|DELETE /api/v1/organizations/{slug}/`; `GET|POST /api/v1/organizations/{slug}/members/`
+- `GET|POST /api/v1/organizations/`; `GET|PATCH|DELETE /api/v1/organizations/{slug}/`; `GET|POST /api/v1/organizations/{slug}/members/`; `GET /api/v1/organizations/{slug}/analytics/` (owner/admin only)
 - `GET|POST /api/v1/polls/`; `GET|PATCH|DELETE /api/v1/polls/{id}/`; `POST /api/v1/polls/{id}/responses/`; `GET /api/v1/polls/{id}/results/`
 - `GET|POST /api/v1/surveys/`; `GET|PATCH|DELETE /api/v1/surveys/{id}/`; `POST /api/v1/surveys/{id}/responses/`; `GET /api/v1/surveys/{id}/report/`; `GET /api/v1/surveys/{id}/export-report/`
 - `GET /api/v1/polls/{id}/export-results/`

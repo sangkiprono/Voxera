@@ -145,6 +145,10 @@ h1 { margin-bottom: 9px; color: #282640; font: 700 clamp(25px,3vw,34px)/1.2 "Seg
 .member-form-row { align-items: end; }
 .member-submit { min-height: 38px; margin-bottom: 0; font-size: 10px; }
 .form-hint { color: #a0a0ad; font-size: 9px; }
+.workspace-analytics { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid #f0eff5; }
+.workspace-analytics h3 { margin: 0 0 2px; color: #4a4861; font-size: 10px; }
+.workspace-analytics > div { display: flex; justify-content: space-between; gap: 12px; color: #878597; font-size: 9px; }
+.workspace-analytics strong { color: #59566f; font-size: 9px; text-align: right; }
 .survey-heading-actions { display: flex; align-items: center; gap: 13px; }
 .survey-filter { min-height: 31px; border: 1px solid #e8e7f0; border-radius: 7px; padding: 0 10px; background: white; color: #77758e; font-size: 9px; font-weight: 600; }
 .survey-filter.active, .survey-filter:hover { border-color: #d7d2fa; background: #f7f6ff; color: #5f52cf; }

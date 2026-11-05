@@ -1,10 +1,13 @@
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+
+from polls.models import Poll
+from surveys.models import Survey
 
 from .models import Membership, Organization
 from .serializers import (
@@ -75,4 +78,32 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         membership = serializer.save()
         return Response(
             MembershipSerializer(membership).data, status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=True, methods=["get"], url_path="analytics")
+    def analytics(self, request, slug=None):
+        organization = self.get_object()
+        self._require_admin(organization)
+        polls = Poll.objects.filter(organization=organization)
+        surveys = Survey.objects.filter(organization=organization)
+        poll_stats = polls.aggregate(
+            total=Count("id", distinct=True),
+            active=Count("id", filter=Q(status=Poll.Status.ACTIVE), distinct=True),
+            responses=Count("responses", distinct=True),
+        )
+        survey_stats = surveys.aggregate(
+            total=Count("id", distinct=True),
+            active=Count("id", filter=Q(status=Survey.Status.ACTIVE), distinct=True),
+            responses=Count("responses", distinct=True),
+        )
+        return Response(
+            {
+                "member_count": organization.memberships.count(),
+                "poll_count": poll_stats["total"],
+                "active_poll_count": poll_stats["active"],
+                "poll_response_count": poll_stats["responses"],
+                "survey_count": survey_stats["total"],
+                "active_survey_count": survey_stats["active"],
+                "survey_response_count": survey_stats["responses"],
+            }
         )

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   api,
+  type OrganizationAnalytics,
   type Organization,
   type OrganizationMember,
   type Poll,
@@ -33,6 +34,7 @@ function App() {
   const [organizationFormOpen, setOrganizationFormOpen] = useState(false);
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
+  const [organizationAnalytics, setOrganizationAnalytics] = useState<OrganizationAnalytics | null>(null);
   const [results, setResults] = useState<Record<number, PollResults>>({});
   const [expandedPoll, setExpandedPoll] = useState<number | null>(null);
   const [choices, setChoices] = useState<Record<number, number>>({});
@@ -208,8 +210,15 @@ function App() {
     setError("");
     setBusy(true);
     try {
-      const members = await api.members(organization.slug);
+      const canViewAnalytics = ["owner", "admin"].includes(organization.role);
+      const [members, analytics] = await Promise.all([
+        api.members(organization.slug),
+        canViewAnalytics
+          ? api.organizationAnalytics(organization.slug)
+          : Promise.resolve(null),
+      ]);
       setOrganizationMembers(members);
+      setOrganizationAnalytics(analytics);
       setActiveOrganization(organization);
     } catch (memberError) {
       setError(
@@ -232,7 +241,12 @@ function App() {
         String(formData.get("email")),
         String(formData.get("role")),
       );
-      setOrganizationMembers(await api.members(activeOrganization.slug));
+      const [members, analytics] = await Promise.all([
+        api.members(activeOrganization.slug),
+        api.organizationAnalytics(activeOrganization.slug),
+      ]);
+      setOrganizationMembers(members);
+      setOrganizationAnalytics(analytics);
       await loadData();
       setNotice("Workspace member added.");
     } catch (memberError) {
@@ -764,6 +778,16 @@ function App() {
           <p className="modal-copy">
             {activeOrganization.description || "People working together in this workspace."}
           </p>
+          {organizationAnalytics && (
+            <section className="workspace-analytics" aria-label="Workspace analytics">
+              <h3>Workspace activity</h3>
+              <div><span>Members</span><strong>{organizationAnalytics.member_count}</strong></div>
+              <div><span>Polls</span><strong>{organizationAnalytics.active_poll_count} active / {organizationAnalytics.poll_count} total</strong></div>
+              <div><span>Poll responses</span><strong>{organizationAnalytics.poll_response_count}</strong></div>
+              <div><span>Surveys</span><strong>{organizationAnalytics.active_survey_count} active / {organizationAnalytics.survey_count} total</strong></div>
+              <div><span>Survey responses</span><strong>{organizationAnalytics.survey_response_count}</strong></div>
+            </section>
+          )}
           <div className="member-list">
             {organizationMembers.map((member) => (
               <div className="member-row" key={member.id}>

@@ -62,6 +62,16 @@ export interface OrganizationMember {
   joined_at: string;
 }
 
+export interface OrganizationAnalytics {
+  member_count: number;
+  poll_count: number;
+  active_poll_count: number;
+  poll_response_count: number;
+  survey_count: number;
+  active_survey_count: number;
+  survey_response_count: number;
+}
+
 export type SurveyQuestionType =
   | "single_choice"
   | "multiple_choice"
@@ -278,6 +288,10 @@ export const api = {
 
   members(slug: string) {
     return request<OrganizationMember[]>(`/organizations/${slug}/members/`);
+  },
+
+  organizationAnalytics(slug: string) {
+    return request<OrganizationAnalytics>(`/organizations/${slug}/analytics/`);
   },
 
   addMember(slug: string, email: string, role: string) {
