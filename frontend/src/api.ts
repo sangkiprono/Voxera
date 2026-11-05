@@ -53,6 +53,19 @@ export interface ActivityComment {
   created_at: string;
 }
 
+export interface Notification {
+  id: number;
+  kind: "comment" | "workspace_added";
+  message: string;
+  actor_name: string;
+  organization_slug: string | null;
+  poll_id: number | null;
+  survey_id: number | null;
+  target_title: string;
+  created_at: string;
+  read_at: string | null;
+}
+
 export interface Organization {
   id: number;
   name: string;
@@ -233,6 +246,26 @@ export const api = {
 
   async currentUser() {
     return request<User>("/auth/me/");
+  },
+
+  notifications() {
+    return request<Notification[]>("/notifications/");
+  },
+
+  unreadNotificationCount() {
+    return request<{ unread_count: number }>("/notifications/unread-count/");
+  },
+
+  markNotificationRead(notificationId: number) {
+    return request<Notification>(`/notifications/${notificationId}/read/`, {
+      method: "POST",
+    });
+  },
+
+  markAllNotificationsRead() {
+    return request<{ updated_count: number }>("/notifications/read-all/", {
+      method: "POST",
+    });
   },
 
   async logout() {

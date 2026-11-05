@@ -5,6 +5,7 @@ import {
   type OrganizationAnalytics,
   type Organization,
   type OrganizationMember,
+  type Notification,
   type Poll,
   type PollResults,
   type Survey,
@@ -36,6 +37,9 @@ function App() {
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
   const [organizationAnalytics, setOrganizationAnalytics] = useState<OrganizationAnalytics | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [results, setResults] = useState<Record<number, PollResults>>({});
   const [expandedPoll, setExpandedPoll] = useState<number | null>(null);
   const [expandedCommentPoll, setExpandedCommentPoll] = useState<number | null>(null);
@@ -60,6 +64,28 @@ function App() {
       );
     } finally {
       setLoading(false);
+    }
+  }, [user]);
+
+  const loadNotifications = useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      setUnreadNotifications(0);
+      return;
+    }
+    try {
+      const [items, unread] = await Promise.all([
+        api.notifications(),
+        api.unreadNotificationCount(),
+      ]);
+      setNotifications(items);
+      setUnreadNotifications(unread.unread_count);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "We could not load your notifications.",
+      );
     }
   }, [user]);
 
@@ -88,6 +114,13 @@ function App() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!user) return;
+    void loadNotifications();
+    const intervalId = window.setInterval(() => void loadNotifications(), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [loadNotifications, user]);
 
   const visiblePolls = useMemo(
     () =>
@@ -130,6 +163,9 @@ function App() {
       await api.logout();
       setUser(null);
       setOrganizations([]);
+      setNotifications([]);
+      setUnreadNotifications(0);
+      setNotificationsOpen(false);
       setView("discover");
       setNotice("You have signed out.");
     } catch (logoutError) {
@@ -139,6 +175,9 @@ function App() {
     } finally {
       setUser(null);
       setOrganizations([]);
+      setNotifications([]);
+      setUnreadNotifications(0);
+      setNotificationsOpen(false);
       setView("discover");
       setBusy(false);
     }
@@ -231,6 +270,53 @@ function App() {
     }
   }
 
+  async function markNotificationRead(notification: Notification) {
+    try {
+      const updated = await api.markNotificationRead(notification.id);
+      setNotifications((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setUnreadNotifications((count) =>
+        notification.read_at === null ? Math.max(0, count - 1) : count,
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not mark the notification as read.",
+      );
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    try {
+      await api.markAllNotificationsRead();
+      const readAt = new Date().toISOString();
+      setNotifications((current) =>
+        current.map((notification) => ({ ...notification, read_at: readAt })),
+      );
+      setUnreadNotifications(0);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not mark notifications as read.",
+      );
+    }
+  }
+
+  async function openNotification(notification: Notification) {
+    await markNotificationRead(notification);
+    setNotificationsOpen(false);
+    setView(
+      notification.organization_slug
+        ? "workspaces"
+        : notification.survey_id
+          ? "surveys"
+          : "discover",
+    );
+  }
+
   async function handleAddMember(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeOrganization) return;
@@ -249,6 +335,7 @@ function App() {
       ]);
       setOrganizationMembers(members);
       setOrganizationAnalytics(analytics);
+      await loadNotifications();
       await loadData();
       setNotice("Workspace member added.");
     } catch (memberError) {
@@ -372,16 +459,79 @@ function App() {
             <span aria-hidden="true">＋</span> Create a poll
           </button>
           {user ? (
-            <button
-              className="user-chip"
-              onClick={() => void handleSignOut()}
-              title="Click to sign out"
-              disabled={busy}
-            >
-              <span className="avatar">{initials(user)}</span>
-              <span className="user-name">{user.first_name || user.email}</span>
-              <span className="sign-out-label">Sign out</span>
-            </button>
+            <>
+              <div className="notification-area">
+                <button
+                  className="notification-trigger"
+                  aria-label={`Notifications${unreadNotifications ? `, ${unreadNotifications} unread` : ""}`}
+                  aria-expanded={notificationsOpen}
+                  onClick={() => setNotificationsOpen((open) => !open)}
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  {unreadNotifications > 0 && (
+                    <span className="notification-badge">
+                      {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                    </span>
+                  )}
+                </button>
+                {notificationsOpen && (
+                  <section className="notification-panel" aria-label="Notifications">
+                    <div className="notification-panel-heading">
+                      <strong>Notifications</strong>
+                      {unreadNotifications > 0 && (
+                        <button
+                          className="results-button"
+                          onClick={() => void markAllNotificationsRead()}
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    {notifications.length ? (
+                      <div className="notification-list">
+                        {notifications.map((notification) => (
+                          <button
+                            className={
+                              notification.read_at
+                                ? "notification-item"
+                                : "notification-item notification-unread"
+                            }
+                            key={notification.id}
+                            onClick={() => void openNotification(notification)}
+                          >
+                            <span>{notification.message}</span>
+                            <small>
+                              {notification.actor_name} ·{" "}
+                              {new Date(notification.created_at).toLocaleDateString()}
+                            </small>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="notification-empty">You’re all caught up.</p>
+                    )}
+                  </section>
+                )}
+              </div>
+              <button
+                className="user-chip"
+                onClick={() => void handleSignOut()}
+                title="Click to sign out"
+                disabled={busy}
+              >
+                <span className="avatar">{initials(user)}</span>
+                <span className="user-name">{user.first_name || user.email}</span>
+                <span className="sign-out-label">Sign out</span>
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -568,7 +718,10 @@ function App() {
                 onBusyChange={setBusy}
                 onRefresh={loadData}
                 onError={setError}
-                onNotice={setNotice}
+                onNotice={(message) => {
+                  setNotice(message);
+                  void loadNotifications();
+                }}
                 onRequireAuth={() => {
                   setRegistering(false);
                   setAuthOpen(true);
@@ -685,7 +838,10 @@ function App() {
                                 setAuthOpen(true);
                               }}
                               onError={setError}
-                              onNotice={setNotice}
+                              onNotice={(message) => {
+                                setNotice(message);
+                                void loadNotifications();
+                              }}
                             />
                           )}
 

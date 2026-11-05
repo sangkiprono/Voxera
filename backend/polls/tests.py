@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
 from organizations.models import Membership, Organization
+from notifications.models import Notification
 
 from .models import Poll, PollOption
 
@@ -97,6 +98,11 @@ class PollApiTests(APITestCase):
 
         self.assertEqual(created.status_code, 201)
         self.assertEqual(created.data["body"], "A useful suggestion.")
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.owner, kind=Notification.Kind.COMMENT, poll=self.poll
+            ).exists()
+        )
         self.assertEqual(self.client.get(comment_url).data[0]["body"], "A useful suggestion.")
 
         self.client.force_authenticate(self.owner)

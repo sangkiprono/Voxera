@@ -3,6 +3,7 @@ from rest_framework.test import APITestCase
 
 from polls.models import Poll, PollOption, PollResponse
 from surveys.models import Survey, SurveyResponse
+from notifications.models import Notification
 
 from .models import Membership, Organization
 
@@ -56,6 +57,13 @@ class OrganizationApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(added.status_code, 201)
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.other_user,
+                kind=Notification.Kind.WORKSPACE_ADDED,
+                organization__slug="northstar",
+            ).exists()
+        )
 
         self.client.force_authenticate(self.other_user)
         denied = self.client.post(

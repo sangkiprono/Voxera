@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from polls.models import Poll
 from surveys.models import Survey
+from notifications.models import Notification
 
 from .models import Membership, Organization
 from .serializers import (
@@ -75,7 +76,16 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             data=request.data, context={"organization": organization}
         )
         serializer.is_valid(raise_exception=True)
-        membership = serializer.save()
+        with transaction.atomic():
+            membership = serializer.save()
+            if membership.user_id != request.user.id:
+                Notification.objects.create(
+                    recipient=membership.user,
+                    actor=request.user,
+                    kind=Notification.Kind.WORKSPACE_ADDED,
+                    message=f"You were added to {organization.name}"[:240],
+                    organization=organization,
+                )
         return Response(
             MembershipSerializer(membership).data, status=status.HTTP_201_CREATED
         )

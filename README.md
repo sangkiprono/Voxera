@@ -7,6 +7,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Email-based account registration, sign-in, sign-out, and profile editing.
 - Organization workspaces with owner, administrator, creator, and member roles.
 - Organization dashboards with member, poll, survey, and response totals (owners and administrators only).
+- In-app notifications for workspace additions and activity comments, with recipient-only inboxes and read controls.
 - Public and restricted opinion polls, one response per signed-in account, and aggregate results.
 - Surveys with single- and multi-choice, text, and 1–5 rating questions; response collection; and manager-only reports.
 - CSV downloads for poll results and manager-authorized survey reports, with spreadsheet formula injection protection.
@@ -14,7 +15,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Responsive discovery and management interfaces.
 - PostgreSQL support, production-aware Django settings, Nginx routing, Docker Compose, and CI for PostgreSQL, Django tests, and the React build.
 
-Formal organizational elections and ballot casting, notification delivery, subscriptions, and advanced analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous.
+Formal organizational elections and ballot casting, email notification delivery, subscriptions, and advanced analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous.
 
 ## Start locally
 
@@ -86,5 +87,6 @@ GitHub Actions runs the Django suite against PostgreSQL and builds the React app
 - `GET|POST /api/v1/surveys/{id}/comments/`; `PATCH /api/v1/surveys/{id}/comments/{comment_id}/moderate/`
 - `GET /api/v1/polls/{id}/export-results/`
 - `GET /api/v1/health/` (database connectivity check)
+- `GET /api/v1/notifications/`; `GET /api/v1/notifications/unread-count/`; `POST /api/v1/notifications/{id}/read/`; `POST /api/v1/notifications/read-all/` (authenticated recipient only)
 
 Protected API endpoints use DRF token authentication. Public activity discovery intentionally returns only published public activities; private activity and reporting access is explicitly scoped to authorized organization members and managers.

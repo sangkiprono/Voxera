@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.decorators import action
@@ -6,6 +7,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from organizations.models import Membership
+from notifications.models import Notification
 
 from .models import ActivityComment, CommentModeration
 from .serializers import (
@@ -52,11 +54,20 @@ class ActivityCommentsMixin:
             )
         serializer = CommentSubmissionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        comment = ActivityComment.objects.create(
-            **comment_filter,
-            author=request.user,
-            body=serializer.validated_data["body"],
-        )
+        with transaction.atomic():
+            comment = ActivityComment.objects.create(
+                **comment_filter,
+                author=request.user,
+                body=serializer.validated_data["body"],
+            )
+            if activity.created_by_id != request.user.id:
+                Notification.objects.create(
+                    recipient=activity.created_by,
+                    actor=request.user,
+                    kind=Notification.Kind.COMMENT,
+                    message=f"New comment on {activity.title}"[:240],
+                    **comment_filter,
+                )
         return Response(
             ActivityCommentSerializer(comment).data,
             status=status.HTTP_201_CREATED,
