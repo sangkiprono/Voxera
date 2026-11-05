@@ -99,6 +99,29 @@ export interface OrganizationAnalytics {
   }>;
 }
 
+export interface OrganizationSubscriptionStatus {
+  subscription: null | {
+    plan_name: string;
+    plan_code: string;
+    monthly_price_minor: number | null;
+    currency: string;
+    max_members: number | null;
+    max_active_polls: number | null;
+    max_active_surveys: number | null;
+    status: "active" | "past_due" | "cancelled";
+    started_at: string;
+    current_period_ends_at: string | null;
+    member_count: number;
+    active_poll_count: number;
+    active_survey_count: number;
+  };
+  usage: {
+    members: number;
+    active_polls: number;
+    active_surveys: number;
+  };
+}
+
 export interface ElectionCandidate {
   id: number;
   user: number;
@@ -391,6 +414,12 @@ export const api = {
 
   organizationAnalytics(slug: string) {
     return request<OrganizationAnalytics>(`/organizations/${slug}/analytics/`);
+  },
+
+  organizationSubscription(slug: string) {
+    return request<OrganizationSubscriptionStatus>(
+      `/organizations/${slug}/subscription/`,
+    );
   },
 
   elections() {

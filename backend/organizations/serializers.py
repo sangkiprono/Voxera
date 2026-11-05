@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import Membership, Organization
+from subscriptions.limits import enforce_member_limit
 
 User = get_user_model()
 
@@ -82,6 +83,7 @@ class AddMemberSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"email": "This person is already a member."}
             )
+        enforce_member_limit(self.context["organization"])
         return attrs
 
     def create(self, validated_data):

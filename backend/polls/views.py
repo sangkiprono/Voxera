@@ -10,8 +10,10 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from organizations.models import Membership
+from organizations.models import Organization
 from config.exports import safe_csv_cell
 from discussions.mixins import ActivityCommentsMixin
+from subscriptions.limits import enforce_activity_limit
 
 from .models import Poll, PollOption, PollResponse
 
@@ -207,6 +209,13 @@ class PollViewSet(ActivityCommentsMixin, viewsets.ModelViewSet):
                 raise PermissionDenied(
                     "You need an organization creator role to create its polls."
                 )
+            with transaction.atomic():
+                organization = Organization.objects.select_for_update().get(
+                    pk=organization.pk
+                )
+                enforce_activity_limit(organization, "poll")
+                serializer.save()
+            return
         serializer.save()
 
     def _require_creator(self, poll):
@@ -230,6 +239,18 @@ class PollViewSet(ActivityCommentsMixin, viewsets.ModelViewSet):
             raise serializers.ValidationError(
                 {"status": "A poll with responses cannot be reopened or edited this way."}
             )
+        if (
+            poll.status != Poll.Status.ACTIVE
+            and serializer.validated_data.get("status") == Poll.Status.ACTIVE
+            and poll.organization_id
+        ):
+            with transaction.atomic():
+                Organization.objects.select_for_update().get(
+                    pk=poll.organization_id
+                )
+                enforce_activity_limit(poll.organization, "poll")
+                serializer.save()
+            return
         serializer.save()
 
     def perform_destroy(self, instance):

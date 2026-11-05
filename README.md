@@ -7,6 +7,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Email-based account registration, sign-in, sign-out, and profile editing.
 - Organization workspaces with owner, administrator, creator, and member roles.
 - Organization dashboards with member, poll, survey, and response totals plus daily poll/survey response trends over 30 days (owners and administrators only).
+- Admin-configured subscription plans and workspace usage caps for members, active polls, and active surveys. Checkout and payment processing are intentionally disabled pending provider and pricing decisions.
 - In-app notifications for workspace additions and activity comments, with recipient-only inboxes and read controls.
 - Optional queued SMTP email delivery for those notifications, with recorded failures, a five-attempt retry limit, and a management command for a single scheduled worker.
 - Low-stakes organization election setup: admin-created drafts, active-member eligibility snapshots at nomination opening, member self-nominations, and nomination close/cancel controls. Ballot casting is intentionally not implemented.
@@ -17,7 +18,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Responsive discovery and management interfaces.
 - PostgreSQL support, production-aware Django settings, Nginx routing, Docker Compose, and CI for PostgreSQL, Django tests, and the React build.
 
-Election ballot casting, subscriptions, and additional analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous. The eligibility roster is a point-in-time snapshot; no ballot or anonymity protocol is provided.
+Election ballot casting, checkout/payment processing, and additional analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous. The eligibility roster is a point-in-time snapshot; no ballot or anonymity protocol is provided.
 
 ## Start locally
 
@@ -64,6 +65,8 @@ The bundled Compose configuration is a local/self-hosted starting point and expo
 
 To send notification emails, set `NOTIFICATIONS_EMAIL_ENABLED=true`, configure SMTP credentials and `DEFAULT_FROM_EMAIL`, then schedule a single backend worker to run `python manage.py send_notification_emails`. Delivery failures are retained and retried up to five times; notifications continue to work in-app if email delivery is unavailable.
 
+Subscription plans are configured in Django admin under **Subscription plans**, then assigned to organizations under **Organization subscriptions**. Unset caps are unlimited; organizations without a plan have no configured caps. The subscription panel and API expose plan and usage to organization owners/admins. There is no checkout, recurring charge, or payment-provider integration.
+
 ## Tests and checks
 
 ```powershell
@@ -84,7 +87,7 @@ GitHub Actions runs the Django suite against PostgreSQL and builds the React app
 ## API overview
 
 - `POST /api/v1/auth/register/`, `POST /api/v1/auth/login/`, `POST /api/v1/auth/logout/`, `GET|PATCH /api/v1/auth/me/`
-- `GET|POST /api/v1/organizations/`; `GET|PATCH|DELETE /api/v1/organizations/{slug}/`; `GET|POST /api/v1/organizations/{slug}/members/`; `GET /api/v1/organizations/{slug}/analytics/` (owner/admin only)
+- `GET|POST /api/v1/organizations/`; `GET|PATCH|DELETE /api/v1/organizations/{slug}/`; `GET|POST /api/v1/organizations/{slug}/members/`; `GET /api/v1/organizations/{slug}/analytics/`; `GET /api/v1/organizations/{slug}/subscription/` (owner/admin only)
 - `GET|POST /api/v1/polls/`; `GET|PATCH|DELETE /api/v1/polls/{id}/`; `POST /api/v1/polls/{id}/responses/`; `GET /api/v1/polls/{id}/results/`
 - `GET|POST /api/v1/polls/{id}/comments/`; `PATCH /api/v1/polls/{id}/comments/{comment_id}/moderate/`
 - `GET|POST /api/v1/surveys/`; `GET|PATCH|DELETE /api/v1/surveys/{id}/`; `POST /api/v1/surveys/{id}/responses/`; `GET /api/v1/surveys/{id}/report/`; `GET /api/v1/surveys/{id}/export-report/`

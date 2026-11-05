@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
-from organizations.models import Membership
+from organizations.models import Membership, Organization
 
 from .models import Election, ElectionCandidate, ElectionEligibleVoter
 from .serializers import (
@@ -102,6 +102,9 @@ class ElectionViewSet(viewsets.ModelViewSet):
         self._require_admin(election)
         with transaction.atomic():
             election = Election.objects.select_for_update().get(pk=election.pk)
+            Organization.objects.select_for_update().get(
+                pk=election.organization_id
+            )
             if election.status != Election.Status.DRAFT:
                 raise serializers.ValidationError(
                     "Only draft elections can open nominations."

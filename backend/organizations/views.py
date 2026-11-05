@@ -15,6 +15,7 @@ from polls.models import PollResponse
 from surveys.models import Survey
 from surveys.models import SurveyResponse
 from notifications.models import Notification
+from subscriptions.serializers import OrganizationSubscriptionStatusSerializer
 
 from .models import Membership, Organization
 from .serializers import (
@@ -82,11 +83,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             return Response(MembershipSerializer(members, many=True).data)
 
         self._require_admin(organization)
-        serializer = AddMemberSerializer(
-            data=request.data, context={"organization": organization}
-        )
-        serializer.is_valid(raise_exception=True)
         with transaction.atomic():
+            organization = Organization.objects.select_for_update().get(
+                pk=organization.pk
+            )
+            serializer = AddMemberSerializer(
+                data=request.data, context={"organization": organization}
+            )
+            serializer.is_valid(raise_exception=True)
             membership = serializer.save()
             if membership.user_id != request.user.id:
                 Notification.objects.create(
@@ -161,3 +165,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 "daily_activity": daily_activity,
             }
         )
+
+    @action(detail=True, methods=["get"], url_path="subscription")
+    def subscription(self, request, slug=None):
+        organization = self.get_object()
+        self._require_admin(organization)
+        serializer = OrganizationSubscriptionStatusSerializer(
+            organization, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)

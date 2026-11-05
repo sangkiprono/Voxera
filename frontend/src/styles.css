@@ -177,6 +177,14 @@ h1 { margin-bottom: 9px; color: #282640; font: 700 clamp(25px,3vw,34px)/1.2 "Seg
 .workspace-analytics h3 { margin: 0 0 2px; color: #4a4861; font-size: 10px; }
 .workspace-analytics > div { display: flex; justify-content: space-between; gap: 12px; color: #878597; font-size: 9px; }
 .workspace-analytics strong { color: #59566f; font-size: 9px; text-align: right; }
+.workspace-subscription { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid #f0eff5; }
+.workspace-subscription h3 { margin: 0; color: #4a4861; font-size: 10px; }
+.workspace-subscription > div { display: flex; justify-content: space-between; gap: 12px; color: #878597; font-size: 9px; }
+.workspace-subscription strong { color: #59566f; font-size: 9px; text-align: right; }
+.workspace-subscription > p, .workspace-subscription > small { margin: 0; color: #9997a8; font-size: 8px; line-height: 1.5; }
+.subscription-plan-title { padding: 7px 9px; border-radius: 6px; background: #f7f6ff; }
+.subscription-plan-title strong { color: #5146b9; }
+.subscription-plan-title span { color: #77758e; font-size: 8px; }
 .workspace-analytics > .analytics-chart-wrap { display: grid; gap: 7px; padding-top: 6px; }
 .analytics-chart-title { color: #77758e; font-size: 8px; }
 .analytics-chart { height: 68px; display: grid; grid-template-columns: repeat(30,minmax(2px,1fr)); align-items: end; gap: 2px; padding: 5px 1px 0; border-bottom: 1px solid #eeedf4; }

@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'discussions',
     'notifications',
     'elections',
+    'subscriptions',
 ]
 
 MIDDLEWARE = [

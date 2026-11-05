@@ -10,8 +10,10 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from organizations.models import Membership
+from organizations.models import Organization
 from config.exports import safe_csv_cell
 from discussions.mixins import ActivityCommentsMixin
+from subscriptions.limits import enforce_activity_limit
 
 from .models import Survey, SurveyQuestion, SurveyResponse as SurveyResponseRecord
 from .serializers import (
@@ -111,6 +113,13 @@ class SurveyViewSet(ActivityCommentsMixin, viewsets.ModelViewSet):
                 raise PermissionDenied(
                     "You need an organization creator role to create its surveys."
                 )
+            with transaction.atomic():
+                organization = Organization.objects.select_for_update().get(
+                    pk=organization.pk
+                )
+                enforce_activity_limit(organization, "survey")
+                serializer.save()
+            return
         serializer.save()
 
     def _require_manager(self, survey):
@@ -134,6 +143,18 @@ class SurveyViewSet(ActivityCommentsMixin, viewsets.ModelViewSet):
             raise serializers.ValidationError(
                 "Surveys cannot be edited after a response has been submitted."
             )
+        if (
+            survey.status != Survey.Status.ACTIVE
+            and serializer.validated_data.get("status") == Survey.Status.ACTIVE
+            and survey.organization_id
+        ):
+            with transaction.atomic():
+                Organization.objects.select_for_update().get(
+                    pk=survey.organization_id
+                )
+                enforce_activity_limit(survey.organization, "survey")
+                serializer.save()
+            return
         serializer.save()
 
     def perform_destroy(self, instance):

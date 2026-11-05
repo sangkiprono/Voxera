@@ -6,6 +6,7 @@ import {
   type OrganizationAnalytics,
   type Organization,
   type OrganizationMember,
+  type OrganizationSubscriptionStatus,
   type Notification,
   type Poll,
   type PollResults,
@@ -38,6 +39,7 @@ function App() {
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
   const [organizationAnalytics, setOrganizationAnalytics] = useState<OrganizationAnalytics | null>(null);
+  const [organizationSubscription, setOrganizationSubscription] = useState<OrganizationSubscriptionStatus | null>(null);
   const [organizationElections, setOrganizationElections] = useState<Election[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -254,15 +256,19 @@ function App() {
     setBusy(true);
     try {
       const canViewAnalytics = ["owner", "admin"].includes(organization.role);
-      const [members, analytics, elections] = await Promise.all([
+      const [members, analytics, subscription, elections] = await Promise.all([
         api.members(organization.slug),
         canViewAnalytics
           ? api.organizationAnalytics(organization.slug)
+          : Promise.resolve(null),
+        canViewAnalytics
+          ? api.organizationSubscription(organization.slug)
           : Promise.resolve(null),
         api.elections(),
       ]);
       setOrganizationMembers(members);
       setOrganizationAnalytics(analytics);
+      setOrganizationSubscription(subscription);
       setOrganizationElections(
         elections.filter((election) => election.organization === organization.id),
       );
@@ -406,12 +412,14 @@ function App() {
         String(formData.get("email")),
         String(formData.get("role")),
       );
-      const [members, analytics] = await Promise.all([
+      const [members, analytics, subscription] = await Promise.all([
         api.members(activeOrganization.slug),
         api.organizationAnalytics(activeOrganization.slug),
+        api.organizationSubscription(activeOrganization.slug),
       ]);
       setOrganizationMembers(members);
       setOrganizationAnalytics(analytics);
+      setOrganizationSubscription(subscription);
       await loadNotifications();
       await loadData();
       setNotice("Workspace member added.");
@@ -1056,6 +1064,30 @@ function App() {
           <p className="modal-copy">
             {activeOrganization.description || "People working together in this workspace."}
           </p>
+          {organizationSubscription && (
+            <section className="workspace-subscription" aria-label="Workspace plan and usage">
+              <h3>Plan and usage</h3>
+              {organizationSubscription.subscription ? (
+                <>
+                  <div className="subscription-plan-title">
+                    <strong>{organizationSubscription.subscription.plan_name}</strong>
+                    <span>
+                      {organizationSubscription.subscription.monthly_price_minor === null
+                        ? "Price not set"
+                        : `${organizationSubscription.subscription.currency} ${(organizationSubscription.subscription.monthly_price_minor / 100).toFixed(2)} / month`}
+                    </span>
+                  </div>
+                  <div><span>Members</span><strong>{organizationSubscription.usage.members} / {organizationSubscription.subscription.max_members ?? "unlimited"}</strong></div>
+                  <div><span>Active polls</span><strong>{organizationSubscription.usage.active_polls} / {organizationSubscription.subscription.max_active_polls ?? "unlimited"}</strong></div>
+                  <div><span>Active surveys</span><strong>{organizationSubscription.usage.active_surveys} / {organizationSubscription.subscription.max_active_surveys ?? "unlimited"}</strong></div>
+                  <small>Status: {organizationSubscription.subscription.status}</small>
+                </>
+              ) : (
+                <p>No subscription plan is assigned to this workspace.</p>
+              )}
+              <small>Plans are configured by the Voxera administrator. Checkout and payment processing are not enabled.</small>
+            </section>
+          )}
           {organizationAnalytics && (
             <section className="workspace-analytics" aria-label="Workspace analytics">
               <h3>Workspace activity</h3>
