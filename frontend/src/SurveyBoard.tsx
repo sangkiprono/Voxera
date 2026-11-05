@@ -9,6 +9,7 @@ import {
   type SurveyReport,
   type User,
 } from "./api";
+import ActivityComments from "./ActivityComments";
 
 interface SurveyBoardProps {
   surveys: Survey[];
@@ -54,6 +55,7 @@ export default function SurveyBoard({
   const [answers, setAnswers] = useState<Record<number, Record<number, AnswerValue>>>({});
   const [reports, setReports] = useState<Record<number, SurveyReport>>({});
   const [expandedReport, setExpandedReport] = useState<number | null>(null);
+  const [expandedComments, setExpandedComments] = useState<number | null>(null);
 
   const visibleSurveys = mySurveys && user
     ? surveys.filter((survey) => survey.created_by === user.id)
@@ -332,6 +334,19 @@ export default function SurveyBoard({
                   </div>
                 )}
 
+                {expandedComments === survey.id && (
+                  <ActivityComments
+                    activityType="survey"
+                    activityId={survey.id}
+                    user={user}
+                    canComment={!isClosed}
+                    canModerate={canViewReport}
+                    onRequireAuth={onRequireAuth}
+                    onError={onError}
+                    onNotice={onNotice}
+                  />
+                )}
+
                 <div className="poll-card-footer">
                   {!survey.has_responded && (
                     <button
@@ -362,6 +377,16 @@ export default function SurveyBoard({
                       Download CSV
                     </button>
                   )}
+                  <button
+                    className="results-button"
+                    onClick={() =>
+                      setExpandedComments(
+                        expandedComments === survey.id ? null : survey.id,
+                      )
+                    }
+                  >
+                    {expandedComments === survey.id ? "Hide discussion" : "Discussion"}
+                  </button>
                   {!isClosed && !survey.has_responded && (
                     <span className="privacy-note">Account-linked responses</span>
                   )}

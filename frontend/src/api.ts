@@ -44,6 +44,15 @@ export interface PollResults {
   }>;
 }
 
+export interface ActivityComment {
+  id: number;
+  body: string;
+  author: number;
+  author_name: string;
+  is_hidden: boolean;
+  created_at: string;
+}
+
 export interface Organization {
   id: number;
   name: string;
@@ -262,6 +271,34 @@ export const api = {
 
   results(pollId: number) {
     return request<PollResults>(`/polls/${pollId}/results/`);
+  },
+
+  comments(activityType: "poll" | "survey", activityId: number) {
+    return request<ActivityComment[]>(
+      `/${activityType}s/${activityId}/comments/`,
+    );
+  },
+
+  createComment(activityType: "poll" | "survey", activityId: number, body: string) {
+    return request<ActivityComment>(`/${activityType}s/${activityId}/comments/`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+  },
+
+  moderateComment(
+    activityType: "poll" | "survey",
+    activityId: number,
+    commentId: number,
+    isHidden: boolean,
+  ) {
+    return request<ActivityComment>(
+      `/${activityType}s/${activityId}/comments/${commentId}/moderate/`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ is_hidden: isHidden }),
+      },
+    );
   },
 
   exportPollResults(pollId: number) {

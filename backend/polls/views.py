@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from organizations.models import Membership
 from config.exports import safe_csv_cell
+from discussions.mixins import ActivityCommentsMixin
 
 from .models import Poll, PollOption, PollResponse
 
@@ -124,7 +125,8 @@ class PollResponseSerializer(serializers.Serializer):
         return value
 
 
-class PollViewSet(viewsets.ModelViewSet):
+class PollViewSet(ActivityCommentsMixin, viewsets.ModelViewSet):
+    comment_field = "poll"
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
@@ -151,6 +153,14 @@ class PollViewSet(viewsets.ModelViewSet):
         return queryset.distinct()
 
     def get_permissions(self):
+        if self.action == "comments":
+            return [
+                permissions.IsAuthenticated()
+                if self.request.method == "POST"
+                else permissions.AllowAny()
+            ]
+        if self.action == "moderate_comment":
+            return [permissions.IsAuthenticated()]
         if self.action in (
             "create",
             "update",

@@ -10,10 +10,11 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 - Public and restricted opinion polls, one response per signed-in account, and aggregate results.
 - Surveys with single- and multi-choice, text, and 1–5 rating questions; response collection; and manager-only reports.
 - CSV downloads for poll results and manager-authorized survey reports, with spreadsheet formula injection protection.
+- Account-linked comments on active polls and surveys; activity creators and workspace administrators can hide/restore comments, with moderation history.
 - Responsive discovery and management interfaces.
 - PostgreSQL support, production-aware Django settings, Nginx routing, Docker Compose, and CI for PostgreSQL, Django tests, and the React build.
 
-Formal organizational elections, anonymous ballots, discussions, notification delivery, subscriptions, and advanced analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. The current poll and survey response model links responses to signed-in accounts and must not be presented as anonymous.
+Formal organizational elections and ballot casting, notification delivery, subscriptions, and advanced analytics remain in active development. Voxera is not certified for governmental, legally regulated, or high-stakes elections. Poll and survey responses and discussion comments are linked to signed-in accounts and must not be presented as anonymous.
 
 ## Start locally
 
@@ -80,7 +81,9 @@ GitHub Actions runs the Django suite against PostgreSQL and builds the React app
 - `POST /api/v1/auth/register/`, `POST /api/v1/auth/login/`, `POST /api/v1/auth/logout/`, `GET|PATCH /api/v1/auth/me/`
 - `GET|POST /api/v1/organizations/`; `GET|PATCH|DELETE /api/v1/organizations/{slug}/`; `GET|POST /api/v1/organizations/{slug}/members/`; `GET /api/v1/organizations/{slug}/analytics/` (owner/admin only)
 - `GET|POST /api/v1/polls/`; `GET|PATCH|DELETE /api/v1/polls/{id}/`; `POST /api/v1/polls/{id}/responses/`; `GET /api/v1/polls/{id}/results/`
+- `GET|POST /api/v1/polls/{id}/comments/`; `PATCH /api/v1/polls/{id}/comments/{comment_id}/moderate/`
 - `GET|POST /api/v1/surveys/`; `GET|PATCH|DELETE /api/v1/surveys/{id}/`; `POST /api/v1/surveys/{id}/responses/`; `GET /api/v1/surveys/{id}/report/`; `GET /api/v1/surveys/{id}/export-report/`
+- `GET|POST /api/v1/surveys/{id}/comments/`; `PATCH /api/v1/surveys/{id}/comments/{comment_id}/moderate/`
 - `GET /api/v1/polls/{id}/export-results/`
 - `GET /api/v1/health/` (database connectivity check)
 

@@ -183,6 +183,26 @@ class SurveyApiTests(APITestCase):
         )
         self.assertEqual(denied.status_code, 403)
 
+    def test_survey_comments_are_moderated_and_hidden_from_the_public(self):
+        comment_url = f"/api/v1/surveys/{self.survey.id}/comments/"
+        self.client.force_authenticate(self.respondent)
+        created = self.client.post(
+            comment_url, {"body": "Please add evening sessions."}, format="json"
+        )
+        self.assertEqual(created.status_code, 201)
+
+        self.client.force_authenticate(self.owner)
+        hidden = self.client.patch(
+            f"{comment_url}{created.data['id']}/moderate/",
+            {"is_hidden": True},
+            format="json",
+        )
+        self.assertEqual(hidden.status_code, 200)
+        self.assertEqual(hidden.data["is_hidden"], True)
+
+        self.client.force_authenticate(self.respondent)
+        self.assertEqual(self.client.get(comment_url).data, [])
+
     def test_required_answers_and_answers_from_another_survey_are_rejected(self):
         other_survey = Survey.objects.create(
             title="Other survey", created_by=self.owner
@@ -315,9 +335,17 @@ class SurveyApiTests(APITestCase):
 
         draft_result = self.client.get(f"/api/v1/surveys/{draft.id}/")
         active_result = self.client.get(f"/api/v1/surveys/{active.id}/")
+        draft_comments = self.client.get(
+            f"/api/v1/surveys/{draft.id}/comments/"
+        )
+        active_comments = self.client.get(
+            f"/api/v1/surveys/{active.id}/comments/"
+        )
 
         self.assertEqual(draft_result.status_code, 404)
         self.assertEqual(active_result.status_code, 200)
+        self.assertEqual(draft_comments.status_code, 404)
+        self.assertEqual(active_comments.status_code, 200)
 
     def test_organization_survey_creation_requires_a_creator_role(self):
         organization = Organization.objects.create(

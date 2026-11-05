@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from organizations.models import Membership
 from config.exports import safe_csv_cell
+from discussions.mixins import ActivityCommentsMixin
 
 from .models import Survey, SurveyQuestion, SurveyResponse as SurveyResponseRecord
 from .serializers import (
@@ -21,7 +22,8 @@ from .serializers import (
 )
 
 
-class SurveyViewSet(viewsets.ModelViewSet):
+class SurveyViewSet(ActivityCommentsMixin, viewsets.ModelViewSet):
+    comment_field = "survey"
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
@@ -52,6 +54,14 @@ class SurveyViewSet(viewsets.ModelViewSet):
         return queryset.distinct()
 
     def get_permissions(self):
+        if self.action == "comments":
+            return [
+                permissions.IsAuthenticated()
+                if self.request.method == "POST"
+                else permissions.AllowAny()
+            ]
+        if self.action == "moderate_comment":
+            return [permissions.IsAuthenticated()]
         if self.action in (
             "create",
             "update",

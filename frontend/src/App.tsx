@@ -10,6 +10,7 @@ import {
   type Survey,
   type User,
 } from "./api";
+import ActivityComments from "./ActivityComments";
 import SurveyBoard from "./SurveyBoard";
 
 type View = "discover" | "mine" | "surveys" | "my-surveys" | "workspaces";
@@ -37,6 +38,7 @@ function App() {
   const [organizationAnalytics, setOrganizationAnalytics] = useState<OrganizationAnalytics | null>(null);
   const [results, setResults] = useState<Record<number, PollResults>>({});
   const [expandedPoll, setExpandedPoll] = useState<number | null>(null);
+  const [expandedCommentPoll, setExpandedCommentPoll] = useState<number | null>(null);
   const [choices, setChoices] = useState<Record<number, number>>({});
 
   const loadData = useCallback(async () => {
@@ -664,6 +666,29 @@ function App() {
                             </fieldset>
                           )}
 
+                          {expandedCommentPoll === poll.id && (
+                            <ActivityComments
+                              activityType="poll"
+                              activityId={poll.id}
+                              user={user}
+                              canComment={!isClosed}
+                              canModerate={
+                                poll.created_by === user?.id ||
+                                ["owner", "admin"].includes(
+                                  organizations.find(
+                                    (organization) => organization.id === poll.organization,
+                                  )?.role ?? "",
+                                )
+                              }
+                              onRequireAuth={() => {
+                                setRegistering(false);
+                                setAuthOpen(true);
+                              }}
+                              onError={setError}
+                              onNotice={setNotice}
+                            />
+                          )}
+
                           <div className="poll-card-footer">
                             {!isExpanded && (
                               <button
@@ -677,6 +702,18 @@ function App() {
                             {!isExpanded && !isClosed && (
                               <span className="privacy-note">Account-linked response</span>
                             )}
+                            <button
+                              className="results-button"
+                              onClick={() =>
+                                setExpandedCommentPoll(
+                                  expandedCommentPoll === poll.id ? null : poll.id,
+                                )
+                              }
+                            >
+                              {expandedCommentPoll === poll.id
+                                ? "Hide discussion"
+                                : "Discussion"}
+                            </button>
                             <button
                               className="results-button"
                               disabled={busy}

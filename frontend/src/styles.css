@@ -170,6 +170,20 @@ h1 { margin-bottom: 9px; color: #282640; font: 700 clamp(25px,3vw,34px)/1.2 "Seg
 .rating-caption { margin-left: 4px; color: #aaa9b6; font-size: 8px; }
 .survey-complete { margin: 2px 0 0; color: #468260; font-size: 9px; }
 .survey-report { display: grid; gap: 13px; margin: 18px 0 15px; }
+.activity-comments { display: grid; gap: 10px; margin: 18px 0 14px; padding-top: 12px; border-top: 1px solid #f0eff5; }
+.comments-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.comments-heading h4 { margin: 0; color: #4a4861; font-size: 10px; }
+.comments-heading span, .comments-empty { color: #a0a0ad; font-size: 8px; }
+.comments-empty { margin: 0; }
+.comment-list { display: grid; gap: 8px; max-height: 200px; overflow-y: auto; }
+.comment-item { padding: 9px; border: 1px solid #efedf5; border-radius: 7px; background: #fff; }
+.comment-hidden { background: #faf9fc; }
+.comment-byline { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #55536b; font-size: 9px; }
+.comment-byline time, .comment-hidden-label { color: #a0a0ad; font-size: 8px; }
+.comment-item > p { margin: 6px 0; color: #77758e; font-size: 9px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-form { display: grid; justify-items: start; gap: 7px; }
+.comment-form textarea { width: 100%; min-height: 60px; resize: vertical; border: 1px solid #e8e7ef; border-radius: 7px; padding: 9px; color: #3d3b54; font: 10px "Segoe UI",sans-serif; }
+.comment-form textarea:focus { outline: 0; border-color: #a59bf0; box-shadow: 0 0 0 3px rgba(105,91,217,.1); }
 .survey-report-total { margin: 0; color: #77758e; font-size: 10px; }
 .report-question { padding-top: 11px; border-top: 1px solid #f1f0f5; }
 .report-question h4 { margin: 0 0 3px; color: #4a4861; font-size: 10px; line-height: 1.5; }

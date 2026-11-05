@@ -83,6 +83,53 @@ class PollApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_activity_comments_are_visible_to_the_audience_and_moderated_by_creator(self):
+        comment_url = f"/api/v1/polls/{self.poll.id}/comments/"
+        anonymous_post = self.client.post(
+            comment_url, {"body": "Anonymous comment"}, format="json"
+        )
+        self.assertEqual(anonymous_post.status_code, 401)
+
+        self.client.force_authenticate(self.voter)
+        created = self.client.post(
+            comment_url, {"body": "  A useful suggestion.  "}, format="json"
+        )
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["body"], "A useful suggestion.")
+        self.assertEqual(self.client.get(comment_url).data[0]["body"], "A useful suggestion.")
+
+        self.client.force_authenticate(self.owner)
+        moderated = self.client.patch(
+            f"{comment_url}{created.data['id']}/moderate/",
+            {"is_hidden": True, "reason": "Off-topic"},
+            format="json",
+        )
+        self.assertEqual(moderated.status_code, 200)
+        self.assertEqual(moderated.data["is_hidden"], True)
+
+        self.client.force_authenticate(self.voter)
+        self.assertEqual(self.client.get(comment_url).data, [])
+        denied = self.client.patch(
+            f"{comment_url}{created.data['id']}/moderate/",
+            {"is_hidden": False},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 403)
+
+    def test_closed_polls_reject_new_comments(self):
+        self.poll.status = Poll.Status.CLOSED
+        self.poll.save(update_fields=["status"])
+        self.client.force_authenticate(self.voter)
+
+        response = self.client.post(
+            f"/api/v1/polls/{self.poll.id}/comments/",
+            {"body": "Late comment"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_response_rejects_an_option_from_a_different_poll(self):
         another_poll = Poll.objects.create(
             title="Another poll", question="Choose one", created_by=self.owner
@@ -144,7 +191,11 @@ class PollApiTests(APITestCase):
         )
         self.client.force_authenticate(self.voter)
         hidden = self.client.get(f"/api/v1/polls/{private_poll.id}/")
+        hidden_comments = self.client.get(
+            f"/api/v1/polls/{private_poll.id}/comments/"
+        )
         self.assertEqual(hidden.status_code, 404)
+        self.assertEqual(hidden_comments.status_code, 404)
 
         Membership.objects.create(
             organization=organization,
@@ -152,4 +203,8 @@ class PollApiTests(APITestCase):
             role=Membership.Role.MEMBER,
         )
         visible = self.client.get(f"/api/v1/polls/{private_poll.id}/")
+        visible_comments = self.client.get(
+            f"/api/v1/polls/{private_poll.id}/comments/"
+        )
         self.assertEqual(visible.status_code, 200)
+        self.assertEqual(visible_comments.status_code, 200)
