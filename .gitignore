@@ -205,6 +205,17 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Voxera frontend tooling
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/.env.local
+backend/venv/
+backend/staticfiles/
+.env
+.env.*
+!.env.example
+
 # Ruff stuff:
 .ruff_cache/
 
