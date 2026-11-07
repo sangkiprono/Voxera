@@ -118,6 +118,14 @@ class OrganizationApiTests(APITestCase):
                 organization=invitation.organization, user=self.other_user
             ).exists()
         )
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.owner,
+                actor=self.other_user,
+                kind=Notification.Kind.ORGANIZATION_INVITATION_ACCEPTED,
+                organization=invitation.organization,
+            ).exists()
+        )
         replay = self.client.post(
             "/api/v1/organizations/invitations/accept/",
             {"token": raw_token},

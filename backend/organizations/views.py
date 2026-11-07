@@ -332,6 +332,16 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             invitation.accepted_by = request.user
             invitation.accepted_at = timezone.now()
             invitation.save(update_fields=["accepted_by", "accepted_at"])
+            Notification.objects.create(
+                recipient=invitation.invited_by,
+                actor=request.user,
+                kind=Notification.Kind.ORGANIZATION_INVITATION_ACCEPTED,
+                message=(
+                    f"{request.user.get_full_name() or request.user.email} accepted "
+                    f"your invitation to {locked_organization.name}."
+                )[:240],
+                organization=locked_organization,
+            )
         return Response(
             {
                 "membership": MembershipSerializer(membership).data,

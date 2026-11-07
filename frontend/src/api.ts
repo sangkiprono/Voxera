@@ -57,7 +57,11 @@ export interface ActivityComment {
 
 export interface Notification {
   id: number;
-  kind: "comment" | "workspace_added" | "organization_review";
+  kind:
+    | "comment"
+    | "workspace_added"
+    | "organization_review"
+    | "organization_invitation_accepted";
   message: string;
   actor_name: string;
   organization_slug: string | null;

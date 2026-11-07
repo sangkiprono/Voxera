@@ -6,7 +6,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 
 - Email/password account registration and sign-in with email verification, password reset, mandatory TOTP authenticator setup, one-time recovery codes, sign-out, and profile editing.
 - Organization workspace requests with manual staff approval, followed by owner, administrator, creator, and member roles.
-- Owner/admin-managed email invitations with role assignment, seven-day expiry, revocation, and verified matching-account acceptance.
+- Owner/admin-managed email invitations with role assignment, seven-day expiry, revocation, verified matching-account acceptance, and an in-app notification to the inviter.
 - Organization dashboards with member, poll, survey, and response totals; daily poll/survey trends over 30 days; and top-five poll and survey response counts (owners and administrators only).
 - Admin-configured subscription plans and workspace usage caps for members, active polls, and active surveys. Checkout and payment processing are intentionally disabled pending provider and pricing decisions.
 - In-app notifications for workspace additions and activity comments, with recipient-only inboxes and read controls.
