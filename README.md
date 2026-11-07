@@ -4,7 +4,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 
 ## What works today
 
-- Email/password account registration and sign-in with mandatory TOTP authenticator setup, one-time recovery codes, sign-out, and profile editing.
+- Email/password account registration and sign-in with email verification, password reset, mandatory TOTP authenticator setup, one-time recovery codes, sign-out, and profile editing.
 - Organization workspace requests with manual staff approval, followed by owner, administrator, creator, and member roles.
 - Organization dashboards with member, poll, survey, and response totals; daily poll/survey trends over 30 days; and top-five poll and survey response counts (owners and administrators only).
 - Admin-configured subscription plans and workspace usage caps for members, active polls, and active surveys. Checkout and payment processing are intentionally disabled pending provider and pricing decisions.
@@ -54,11 +54,12 @@ npm run dev
 
 Vite proxies `/api` requests to Django. Open the local URL printed by Vite.
 After publishing a poll, copy its direct link from the share dialog. Public links open the selected poll; private polls remain limited to workspace members. Respondents must sign in, and local development links are only reachable from devices that can access your development server.
+In local development, email verification and password-reset links are printed by Django's console email backend. Configure SMTP for Docker/self-hosted deployments so these messages reach users.
 
 ## Run with PostgreSQL and Docker
 
 1. Copy `.env.example` to `.env`.
-2. Set `DJANGO_SECRET_KEY` to a unique, random secret, `MFA_ENCRYPTION_KEY` to a generated Fernet key, and `POSTGRES_PASSWORD` to a unique password. Never commit `.env`. Generate the MFA key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and keep it stable across deployments; losing or rotating it prevents decryption of existing authenticator secrets.
+2. Set `DJANGO_SECRET_KEY` to a unique, random secret, `MFA_ENCRYPTION_KEY` to a generated Fernet key, `FRONTEND_BASE_URL` to the public frontend origin, SMTP host/credentials/sender, and `POSTGRES_PASSWORD` to unique values. Never commit `.env`. Generate the MFA key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and keep it stable across deployments; losing or rotating it prevents decryption of existing authenticator secrets.
 3. Start the stack with `docker compose up --build`.
 4. Open `http://localhost:8080`; Django admin is at `/admin/`.
 
@@ -68,7 +69,7 @@ To send notification emails, set `NOTIFICATIONS_EMAIL_ENABLED=true`, configure S
 
 Subscription plans are configured in Django admin under **Subscription plans**, then assigned to organizations under **Organization subscriptions**. Unset caps are unlimited; organizations without a plan have no configured caps. The subscription panel and API expose plan and usage to organization owners/admins. There is no checkout, recurring charge, or payment-provider integration.
 
-New and existing accounts must enroll a TOTP authenticator before using protected application APIs. Login issues a short-lived challenge, and successful enrollment rotates the account's API token. Save the single-use recovery codes when they are shown. Local development derives an MFA encryption key from `DJANGO_SECRET_KEY`; production Compose requires the dedicated key above.
+New accounts must verify their email and enroll a TOTP authenticator before using protected application APIs. Verification links expire after 24 hours; password-reset links expire after 30 minutes and revoke existing API tokens. Login issues a short-lived challenge, and successful MFA enrollment rotates the account's API token. Save the single-use recovery codes when they are shown. Local development derives an MFA encryption key from `DJANGO_SECRET_KEY`; production Compose requires SMTP, a public frontend URL, and the dedicated key above.
 
 ## Tests and checks
 
@@ -90,6 +91,7 @@ GitHub Actions runs the Django suite against PostgreSQL and builds the React app
 ## API overview
 
 - `POST /api/v1/auth/register/`, `POST /api/v1/auth/login/`, `POST /api/v1/auth/logout/`, `GET|PATCH /api/v1/auth/me/`
+- `POST /api/v1/auth/email/verification/`, `POST /api/v1/auth/email/verification/resend/`, `POST /api/v1/auth/password/reset/request/`, `POST /api/v1/auth/password/reset/confirm/`
 - `GET|POST /api/v1/organizations/`; `GET|PATCH|DELETE /api/v1/organizations/{slug}/`; `GET|POST /api/v1/organizations/{slug}/members/`; `GET /api/v1/organizations/{slug}/analytics/`; `GET /api/v1/organizations/{slug}/subscription/` (owner/admin only)
 - `GET /api/v1/organizations/applications/` (applicant's requests; staff see pending requests); `POST /api/v1/organizations/{slug}/review/` (staff only, requires decision and reason)
 - `GET|POST /api/v1/polls/`; `GET|PATCH|DELETE /api/v1/polls/{id}/`; `POST /api/v1/polls/{id}/responses/`; `GET /api/v1/polls/{id}/results/`

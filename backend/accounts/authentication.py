@@ -11,6 +11,11 @@ class MFAEnforcingTokenAuthentication(TokenAuthentication):
         "/api/v1/auth/logout/",
         "/api/v1/auth/mfa/setup/",
         "/api/v1/auth/mfa/confirm/",
+        "/api/v1/auth/email/verification/",
+        "/api/v1/auth/email/verification/resend/",
+        "/api/v1/auth/password/reset/",
+        "/api/v1/auth/password/reset/confirm/",
+        "/api/v1/auth/password/reset/request/",
     }
 
     def authenticate(self, request):
@@ -19,6 +24,11 @@ class MFAEnforcingTokenAuthentication(TokenAuthentication):
             return None
 
         user, token = authenticated
+        if not user.email_verified and request.path not in self.setup_paths:
+            raise AuthenticationFailed(
+                "Verify your email address before using Voxera.",
+                code="email_verification_required",
+            )
         if request.path not in self.setup_paths:
             from .models import MFADevice
 

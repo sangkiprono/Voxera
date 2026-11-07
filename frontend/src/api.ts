@@ -6,6 +6,7 @@ export interface User {
   email: string;
   first_name: string;
   last_name: string;
+  email_verified: boolean;
   mfa_enrolled: boolean;
 }
 
@@ -357,6 +358,33 @@ export const api = {
 
   async currentUser() {
     return request<User>("/auth/me/");
+  },
+
+  verifyEmail(token: string) {
+    return request<{ email_verified: boolean }>("/auth/email/verification/", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  resendEmailVerification() {
+    return request<{ detail: string }>("/auth/email/verification/resend/", {
+      method: "POST",
+    });
+  },
+
+  requestPasswordReset(email: string) {
+    return request<{ detail: string }>("/auth/password/reset/request/", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  confirmPasswordReset(token: string, password: string) {
+    return request<{ detail: string }>("/auth/password/reset/confirm/", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    });
   },
 
   notifications() {

@@ -209,6 +209,7 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
 EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "false").lower() == "true"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Voxera <noreply@localhost>")
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
 NOTIFICATIONS_EMAIL_ENABLED = (
     os.environ.get("NOTIFICATIONS_EMAIL_ENABLED", "false").lower() == "true"
 )
@@ -222,6 +223,18 @@ if NOTIFICATIONS_EMAIL_ENABLED and not DEBUG and (
 ):
     raise ImproperlyConfigured(
         "Production email notifications require SMTP backend, host, credentials, and sender."
+    )
+
+if not DEBUG and (
+    EMAIL_BACKEND != "django.core.mail.backends.smtp.EmailBackend"
+    or not EMAIL_HOST
+    or not EMAIL_HOST_USER
+    or not EMAIL_HOST_PASSWORD
+    or not DEFAULT_FROM_EMAIL
+    or not FRONTEND_BASE_URL
+):
+    raise ImproperlyConfigured(
+        "Production account verification and recovery require SMTP settings and FRONTEND_BASE_URL."
     )
 
 AUTH_USER_MODEL = "accounts.User"
@@ -242,5 +255,7 @@ REST_FRAMEWORK = {
         "user": "5000/hour",
         "auth": "10/hour",
         "mfa": "10/hour",
+        "password_reset": "5/hour",
+        "email_verification": "5/hour",
     },
 }

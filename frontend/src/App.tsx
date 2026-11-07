@@ -37,6 +37,11 @@ function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [authChallengeId, setAuthChallengeId] = useState<string | null>(null);
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("reset_password"),
+  );
+  const [passwordResetRequest, setPasswordResetRequest] = useState(false);
+  const [passwordResetSent, setPasswordResetSent] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [pollFormOpen, setPollFormOpen] = useState(false);
   const [organizationFormOpen, setOrganizationFormOpen] = useState(false);
@@ -58,8 +63,36 @@ function App() {
   });
   const [sharingPoll, setSharingPoll] = useState<Poll | null>(null);
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const verificationToken = url.searchParams.get("verify_email");
+    if (verificationToken) {
+      url.searchParams.delete("verify_email");
+      window.history.replaceState(null, "", url);
+      void api.verifyEmail(verificationToken)
+        .then(async () => {
+          if (sessionStorage.getItem("voxera-token")) {
+            setUser(await api.currentUser());
+          } else {
+            setNotice("Email verified. You can now sign in.");
+            setAuthOpen(true);
+          }
+        })
+        .catch((verificationFailure: unknown) => {
+          setError(
+            verificationFailure instanceof Error
+              ? verificationFailure.message
+              : "This verification link could not be used.",
+          );
+        });
+    }
+    if (url.searchParams.has("reset_password")) {
+      setAuthOpen(true);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
-    if (!authRestored || (user && !user.mfa_enrolled)) {
+    if (!authRestored || (user && (!user.mfa_enrolled || !user.email_verified))) {
       setLoading(false);
       return;
     }
@@ -87,7 +120,7 @@ function App() {
   }, [authRestored, user]);
 
   const loadNotifications = useCallback(async () => {
-    if (!user || !user.mfa_enrolled) {
+    if (!user || !user.mfa_enrolled || !user.email_verified) {
       setNotifications([]);
       setUnreadNotifications(0);
       return;
@@ -243,6 +276,45 @@ function App() {
       setNotice("Welcome back.");
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : "Could not verify your code.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePasswordResetRequest(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setBusy(true);
+    setError("");
+    try {
+      await api.requestPasswordReset(String(formData.get("email")));
+      setPasswordResetSent(true);
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : "Could not request a password reset.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePasswordResetConfirm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!passwordResetToken) return;
+    const formData = new FormData(event.currentTarget);
+    setBusy(true);
+    setError("");
+    try {
+      await api.confirmPasswordReset(
+        passwordResetToken,
+        String(formData.get("new_password")),
+      );
+      const url = new URL(window.location.href);
+      url.searchParams.delete("reset_password");
+      window.history.replaceState(null, "", url);
+      setPasswordResetToken(null);
+      setAuthOpen(false);
+      setNotice("Password changed. Sign in with your new password.");
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : "Could not reset your password.");
     } finally {
       setBusy(false);
     }
@@ -621,6 +693,15 @@ function App() {
     return (
       <MFASetup
         onComplete={handleMFASetupComplete}
+        onSignOut={() => void handleSignOut()}
+      />
+    );
+  }
+
+  if (user && !user.email_verified) {
+    return (
+      <EmailVerificationGate
+        email={user.email}
         onSignOut={() => void handleSignOut()}
       />
     );
@@ -1149,11 +1230,64 @@ function App() {
           onClose={() => {
             setAuthOpen(false);
             setAuthChallengeId(null);
+            setPasswordResetRequest(false);
+            setPasswordResetSent(false);
           }}
-          title={authChallengeId ? "Verify it’s you." : registering ? "Find your voice." : "Welcome back."}
-          eyebrow={authChallengeId ? "AUTHENTICATOR CHECK" : "YOUR VOXERA ACCOUNT"}
+          title={
+            authChallengeId
+              ? "Verify it’s you."
+              : passwordResetToken
+                ? "Choose a new password."
+                : passwordResetRequest
+                  ? "Reset your password."
+                  : registering
+                    ? "Find your voice."
+                    : "Welcome back."
+          }
+          eyebrow={
+            authChallengeId
+              ? "AUTHENTICATOR CHECK"
+              : passwordResetToken || passwordResetRequest
+                ? "ACCOUNT RECOVERY"
+                : "YOUR VOXERA ACCOUNT"
+          }
         >
-          {authChallengeId ? (
+          {passwordResetToken ? (
+            <form className="form-stack" onSubmit={(event) => void handlePasswordResetConfirm(event)}>
+              <p className="modal-copy">Choose a new password for your account.</p>
+              <Field label="New password">
+                <input name="new_password" type="password" autoComplete="new-password" minLength={8} required />
+              </Field>
+              {error && <div className="error-banner" role="alert">{error}</div>}
+              <button className="button button-primary form-submit" type="submit" disabled={busy}>
+                {busy ? "Updating…" : "Change password"}
+              </button>
+            </form>
+          ) : passwordResetRequest ? (
+            passwordResetSent ? (
+              <>
+                <p className="modal-copy">If an active account matches that email, a reset link will be sent.</p>
+                <button className="button button-primary form-submit" onClick={() => {
+                  setPasswordResetRequest(false);
+                  setPasswordResetSent(false);
+                }}>
+                  Back to sign in
+                </button>
+              </>
+            ) : (
+              <form className="form-stack" onSubmit={(event) => void handlePasswordResetRequest(event)}>
+                <p className="modal-copy">Enter your account email. If it matches an active account, we’ll send a one-time reset link.</p>
+                <Field label="Email address">
+                  <input name="email" type="email" autoComplete="email" required />
+                </Field>
+                {error && <div className="error-banner" role="alert">{error}</div>}
+                <button className="button button-primary form-submit" type="submit" disabled={busy}>
+                  {busy ? "Sending…" : "Send reset link"}
+                </button>
+                <p className="switch-auth"><button type="button" onClick={() => setPasswordResetRequest(false)}>Back to sign in</button></p>
+              </form>
+            )
+          ) : authChallengeId ? (
             <>
               <p className="modal-copy">Enter the current six-digit code from your authenticator app, or a saved recovery code.</p>
               <form className="form-stack" onSubmit={(event) => void handleMFALogin(event)}>
@@ -1188,6 +1322,14 @@ function App() {
                 {registering ? "Already have an account?" : "New to Voxera?"}{" "}
                 <button onClick={() => setRegistering(!registering)}>{registering ? "Log in" : "Create an account"}</button>
               </p>
+              {!registering && (
+                <p className="switch-auth">
+                  <button onClick={() => {
+                    setError("");
+                    setPasswordResetRequest(true);
+                  }}>Forgot your password?</button>
+                </p>
+              )}
             </>
           )}
         </Modal>
@@ -1507,6 +1649,58 @@ function App() {
         </Modal>
       )}
     </div>
+  );
+}
+
+function EmailVerificationGate({
+  email,
+  onSignOut,
+}: {
+  email: string;
+  onSignOut: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function resendVerification() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api.resendEmailVerification();
+      setNotice(result.detail);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not send a verification link.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="mfa-setup-screen">
+      <section className="mfa-setup-panel">
+        <p className="eyebrow">VERIFY YOUR EMAIL</p>
+        <h1>Check your inbox.</h1>
+        <p className="welcome-copy">
+          Verify <strong>{email}</strong> using the link we sent before continuing.
+        </p>
+        {notice && <div className="notice" role="status">{notice}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        <button
+          className="button button-primary form-submit"
+          onClick={() => void resendVerification()}
+          disabled={busy}
+        >
+          {busy ? "Sending…" : "Resend verification link"}
+        </button>
+        <button className="results-button" onClick={onSignOut}>Sign out</button>
+      </section>
+    </main>
   );
 }
 

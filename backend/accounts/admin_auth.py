@@ -20,6 +20,10 @@ class MFAAdminAuthenticationForm(AdminAuthenticationForm):
         if user is None:
             return cleaned_data
         with transaction.atomic():
+            if not user.email_verified:
+                raise ValidationError(
+                    "Verify this staff account's email before using admin."
+                )
             if not MFADevice.objects.filter(
                 user=user, confirmed_at__isnull=False
             ).exists():

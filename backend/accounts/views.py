@@ -1,8 +1,12 @@
 import hashlib
+import logging
 import secrets
+import smtplib
 from datetime import timedelta
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -10,8 +14,20 @@ from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.exceptions import ValidationError
 
-from .models import MFADevice, MFALoginChallenge, MFARecoveryCode
+from .account_tokens import (
+    find_usable_account_token,
+    issue_account_token,
+    send_account_action_email,
+)
+from django.contrib.auth import get_user_model
+from .models import (
+    AccountSecurityToken,
+    MFADevice,
+    MFALoginChallenge,
+    MFARecoveryCode,
+)
 from .mfa import consume_mfa_code
 from .security import (
     encrypt_totp_secret,
@@ -23,9 +39,14 @@ from .serializers import (
     LoginSerializer,
     MFALoginSerializer,
     MFASetupConfirmSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
     RegistrationSerializer,
     UserSerializer,
 )
+
+logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 def _new_recovery_codes():
@@ -44,11 +65,139 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegistrationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        token, _ = Token.objects.get_or_create(user=user)
+        with transaction.atomic():
+            user = serializer.save()
+            raw_token = issue_account_token(
+                user, AccountSecurityToken.Purpose.EMAIL_VERIFICATION
+            )
+            send_account_action_email(
+                user, AccountSecurityToken.Purpose.EMAIL_VERIFICATION, raw_token
+            )
+            token, _ = Token.objects.get_or_create(user=user)
         return Response(
             {"token": token.key, "user": UserSerializer(user).data},
             status=status.HTTP_201_CREATED,
+        )
+
+
+class EmailVerificationView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email_verification"
+
+    def post(self, request):
+        raw_token = request.data.get("token", "")
+        if not isinstance(raw_token, str) or not raw_token:
+            raise ValidationError({"token": "A verification token is required."})
+        with transaction.atomic():
+            account_token = find_usable_account_token(
+                raw_token, AccountSecurityToken.Purpose.EMAIL_VERIFICATION
+            )
+            if account_token is None:
+                return Response(
+                    {"detail": "This verification link is invalid or expired."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            account_token.consumed_at = timezone.now()
+            account_token.save(update_fields=["consumed_at"])
+            account_token.user.email_verified = True
+            account_token.user.save(update_fields=["email_verified"])
+        return Response({"email_verified": True})
+
+
+class ResendEmailVerificationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email_verification"
+
+    def post(self, request):
+        if request.user.email_verified:
+            return Response(
+                {"detail": "This email address is already verified."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        raw_token = issue_account_token(
+            request.user, AccountSecurityToken.Purpose.EMAIL_VERIFICATION
+        )
+        send_account_action_email(
+            request.user,
+            AccountSecurityToken.Purpose.EMAIL_VERIFICATION,
+            raw_token,
+        )
+        return Response({"detail": "A verification link has been sent."})
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_reset"
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = User.objects.filter(
+            email__iexact=serializer.validated_data["email"],
+            is_active=True,
+        ).first()
+        if user is not None:
+            try:
+                raw_token = issue_account_token(
+                    user, AccountSecurityToken.Purpose.PASSWORD_RESET
+                )
+                send_account_action_email(
+                    user, AccountSecurityToken.Purpose.PASSWORD_RESET, raw_token
+                )
+            except (OSError, RuntimeError, smtplib.SMTPException):
+                logger.exception(
+                    "Password-reset email delivery failed for account id %s",
+                    user.pk,
+                )
+        return Response(
+            {
+                "detail": (
+                    "If an active account matches that email, a password reset "
+                    "link will be sent."
+                )
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_reset"
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            account_token = find_usable_account_token(
+                serializer.validated_data["token"],
+                AccountSecurityToken.Purpose.PASSWORD_RESET,
+            )
+            if account_token is None:
+                return Response(
+                    {"detail": "This password-reset link is invalid or expired."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                validate_password(
+                    serializer.validated_data["password"], account_token.user
+                )
+            except DjangoValidationError as exc:
+                raise ValidationError({"password": exc.messages}) from exc
+            account_token.user.set_password(serializer.validated_data["password"])
+            account_token.user.save(update_fields=["password"])
+            account_token.consumed_at = timezone.now()
+            account_token.save(update_fields=["consumed_at"])
+            AccountSecurityToken.objects.filter(
+                user=account_token.user,
+                consumed_at__isnull=True,
+            ).update(consumed_at=timezone.now())
+            Token.objects.filter(user=account_token.user).delete()
+        return Response(
+            {"detail": "Password changed. Sign in with your new password."}
         )
 
 

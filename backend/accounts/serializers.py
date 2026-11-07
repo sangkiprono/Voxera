@@ -10,8 +10,15 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("id", "email", "first_name", "last_name", "mfa_enrolled")
-        read_only_fields = ("id", "email")
+        fields = (
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "email_verified",
+            "mfa_enrolled",
+        )
+        read_only_fields = ("id", "email", "email_verified")
 
     def get_mfa_enrolled(self, user):
         return hasattr(user, "mfa_device") and user.mfa_device.is_confirmed
@@ -46,6 +53,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
         return User.objects.create_user(
             email=validated_data["email"],
             password=password,
+            email_verified=False,
             first_name=validated_data.get("first_name", ""),
             last_name=validated_data.get("last_name", ""),
         )
@@ -72,3 +80,19 @@ class MFALoginSerializer(MFACodeSerializer):
 
 class MFASetupConfirmSerializer(MFACodeSerializer):
     code = serializers.RegexField(r"^\d{6}$", trim_whitespace=True)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=64)
+    password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value

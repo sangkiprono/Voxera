@@ -13,6 +13,7 @@ class UserManager(BaseUserManager):
             raise ValueError("An email address is required.")
 
         email = self.normalize_email(email).strip().lower()
+        extra_fields.setdefault("email_verified", True)
         user = self.model(email=email, **extra_fields)
 
         if password is not None:
@@ -39,6 +40,7 @@ class UserManager(BaseUserManager):
 class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True)
+    email_verified = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
@@ -95,3 +97,22 @@ class MFARecoveryCode(models.Model):
     code_hash = models.CharField(max_length=64)
     used_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class AccountSecurityToken(models.Model):
+    class Purpose(models.TextChoices):
+        EMAIL_VERIFICATION = "email_verification", "Email verification"
+        PASSWORD_RESET = "password_reset", "Password reset"
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="security_tokens"
+    )
+    purpose = models.CharField(max_length=24, choices=Purpose.choices)
+    token_digest = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def is_usable(self):
+        return self.consumed_at is None and self.expires_at > timezone.now()
