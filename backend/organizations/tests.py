@@ -1,4 +1,10 @@
+import hashlib
+import re
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
+from django.core import mail
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
@@ -6,11 +12,12 @@ from polls.models import Poll, PollOption, PollResponse
 from surveys.models import Survey, SurveyResponse
 from notifications.models import Notification
 
-from .models import Membership, Organization
+from .models import Membership, Organization, OrganizationInvitation
 
 User = get_user_model()
 
 
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class OrganizationApiTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -19,6 +26,143 @@ class OrganizationApiTests(APITestCase):
         self.other_user = User.objects.create_user(
             email="other@example.com", password="secure-test-password"
         )
+
+    def _approved_organization(self):
+        organization = Organization.objects.create(
+            name="Northstar",
+            slug="northstar",
+            created_by=self.owner,
+            status=Organization.Status.APPROVED,
+        )
+        Membership.objects.create(
+            organization=organization,
+            user=self.owner,
+            role=Membership.Role.OWNER,
+        )
+        return organization
+
+    def _send_invitation(self, email="other@example.com", role="member"):
+        response = self.client.post(
+            "/api/v1/organizations/northstar/invitations/",
+            {"email": email, "role": role},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        match = re.search(
+            r"[?&]accept_invite=([A-Za-z0-9_-]+)", mail.outbox[-1].body
+        )
+        self.assertIsNotNone(match)
+        return response, match.group(1)
+
+    def test_invitation_is_hashed_expires_and_requires_matching_verified_account(self):
+        self._approved_organization()
+        self.client.force_authenticate(self.owner)
+        invitation_response, raw_token = self._send_invitation(
+            role=Membership.Role.CREATOR
+        )
+        invitation = OrganizationInvitation.objects.get()
+        self.assertEqual(invitation.email, self.other_user.email)
+        self.assertEqual(invitation.status, OrganizationInvitation.Status.PENDING)
+        self.assertEqual(
+            invitation.token_digest,
+            hashlib.sha256(raw_token.encode()).hexdigest(),
+        )
+        self.assertNotIn(raw_token, invitation.token_digest)
+        self.assertEqual(invitation_response.data["status"], "pending")
+        self.assertEqual(len(mail.outbox), 1)
+
+        duplicate = self.client.post(
+            "/api/v1/organizations/northstar/invitations/",
+            {"email": self.other_user.email, "role": Membership.Role.MEMBER},
+            format="json",
+        )
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(len(mail.outbox), 1)
+
+        listed = self.client.get("/api/v1/organizations/northstar/invitations/")
+        self.assertEqual(len(listed.data), 1)
+        self.assertNotIn("token_digest", listed.data[0])
+
+        self.other_user.email_verified = False
+        self.other_user.save(update_fields=["email_verified"])
+        self.client.force_authenticate(self.other_user)
+        unverified = self.client.post(
+            "/api/v1/organizations/invitations/accept/",
+            {"token": raw_token},
+            format="json",
+        )
+        self.assertEqual(unverified.status_code, 403)
+        self.other_user.email_verified = True
+        self.other_user.save(update_fields=["email_verified"])
+
+        self.client.force_authenticate(self.owner)
+        mismatch = self.client.post(
+            "/api/v1/organizations/invitations/accept/",
+            {"token": raw_token},
+            format="json",
+        )
+        self.assertEqual(mismatch.status_code, 403)
+        self.client.force_authenticate(self.other_user)
+        accepted = self.client.post(
+            "/api/v1/organizations/invitations/accept/",
+            {"token": raw_token},
+            format="json",
+        )
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.data["organization_name"], "Northstar")
+        self.assertEqual(accepted.data["membership"]["role"], Membership.Role.CREATOR)
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.status, OrganizationInvitation.Status.ACCEPTED)
+        self.assertTrue(
+            Membership.objects.filter(
+                organization=invitation.organization, user=self.other_user
+            ).exists()
+        )
+        replay = self.client.post(
+            "/api/v1/organizations/invitations/accept/",
+            {"token": raw_token},
+            format="json",
+        )
+        self.assertEqual(replay.status_code, 404)
+
+    def test_invitation_can_be_revoked_and_expired_invitation_replaced(self):
+        self._approved_organization()
+        self.client.force_authenticate(self.owner)
+        response, raw_token = self._send_invitation()
+        revoked = self.client.post(
+            f"/api/v1/organizations/northstar/invitations/{response.data['id']}/revoke/",
+            {},
+            format="json",
+        )
+        self.assertEqual(revoked.status_code, 200)
+        self.assertEqual(revoked.data["status"], OrganizationInvitation.Status.REVOKED)
+        self.client.force_authenticate(self.other_user)
+        invalid = self.client.post(
+            "/api/v1/organizations/invitations/accept/",
+            {"token": raw_token},
+            format="json",
+        )
+        self.assertEqual(invalid.status_code, 404)
+
+        self.client.force_authenticate(self.owner)
+        replacement, replacement_token = self._send_invitation()
+        current = OrganizationInvitation.objects.get(pk=replacement.data["id"])
+        current.expires_at = timezone.now() - timedelta(seconds=1)
+        current.save(update_fields=["expires_at"])
+        self.client.force_authenticate(self.other_user)
+        expired = self.client.post(
+            "/api/v1/organizations/invitations/accept/",
+            {"token": replacement_token},
+            format="json",
+        )
+        self.assertEqual(expired.status_code, 404)
+
+        self.client.force_authenticate(self.owner)
+        next_response, _ = self._send_invitation()
+        self.assertEqual(next_response.status_code, 201)
+        current.refresh_from_db()
+        self.assertEqual(current.status, OrganizationInvitation.Status.REVOKED)
+        self.assertNotEqual(raw_token, replacement_token)
 
     def test_workspace_request_is_pending_and_not_accessible_before_review(self):
         self.client.force_authenticate(self.owner)

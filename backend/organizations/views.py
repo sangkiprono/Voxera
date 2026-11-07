@@ -1,8 +1,12 @@
+import hashlib
+import secrets
 from datetime import datetime, time, timedelta
 
 from django.db import transaction
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
+from django.conf import settings
+from django.core.mail import send_mail
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -17,13 +21,17 @@ from surveys.models import SurveyResponse
 from notifications.models import Notification
 from subscriptions.serializers import OrganizationSubscriptionStatusSerializer
 
-from .models import Membership, Organization
+from .models import Membership, Organization, OrganizationInvitation
 from .serializers import (
+    AcceptOrganizationInvitationSerializer,
     AddMemberSerializer,
+    CreateOrganizationInvitationSerializer,
     MembershipSerializer,
-    OrganizationSerializer,
+    OrganizationInvitationSerializer,
     OrganizationReviewSerializer,
+    OrganizationSerializer,
 )
+from subscriptions.limits import enforce_member_limit
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -169,7 +177,167 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     organization=organization,
                 )
         return Response(
-            MembershipSerializer(membership).data, status=status.HTTP_201_CREATED
+            MembershipSerializer(membership).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["get", "post"], url_path="invitations")
+    def invitations(self, request, slug=None):
+        organization = self.get_object()
+        self._require_admin(organization)
+        if request.method == "GET":
+            invitations = organization.invitations.select_related("invited_by")
+            return Response(
+                OrganizationInvitationSerializer(invitations, many=True).data
+            )
+
+        with transaction.atomic():
+            organization = Organization.objects.select_for_update().get(
+                pk=organization.pk, status=Organization.Status.APPROVED
+            )
+            serializer = CreateOrganizationInvitationSerializer(
+                data=request.data, context={"organization": organization}
+            )
+            serializer.is_valid(raise_exception=True)
+            email = serializer.validated_data["email"]
+            OrganizationInvitation.objects.filter(
+                organization=organization,
+                email=email,
+                accepted_at__isnull=True,
+                revoked_at__isnull=True,
+                expires_at__lte=timezone.now(),
+            ).update(revoked_at=timezone.now())
+
+            if OrganizationInvitation.objects.filter(
+                organization=organization,
+                email=email,
+                accepted_at__isnull=True,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+            ).exists():
+                raise ValidationError(
+                    {"email": "A valid invitation has already been sent to this address."}
+                )
+
+            raw_token = secrets.token_urlsafe(32)
+            invitation = OrganizationInvitation.objects.create(
+                organization=organization,
+                email=email,
+                role=serializer.validated_data["role"],
+                token_digest=hashlib.sha256(raw_token.encode()).hexdigest(),
+                invited_by=request.user,
+                expires_at=timezone.now() + timedelta(days=7),
+            )
+            link = (
+                f"{settings.FRONTEND_BASE_URL}/"
+                f"?accept_invite={raw_token}"
+            )
+            sent = send_mail(
+                f"Invitation to join {organization.name} on Voxera",
+                (
+                    f"{request.user.get_full_name() or request.user.email} invited "
+                    f"you to join {organization.name} as {invitation.get_role_display()}.\n\n"
+                    f"Sign in to the Voxera account for {email} and accept this "
+                    f"invitation within 7 days:\n\n{link}\n"
+                ),
+                settings.DEFAULT_FROM_EMAIL,
+                [email],
+                fail_silently=False,
+            )
+            if sent != 1:
+                raise RuntimeError("The organization invitation email was not sent.")
+
+        return Response(
+            OrganizationInvitationSerializer(invitation).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"invitations/(?P<invitation_id>[^/.]+)/revoke",
+    )
+    def revoke_invitation(self, request, slug=None, invitation_id=None):
+        organization = self.get_object()
+        self._require_admin(organization)
+        with transaction.atomic():
+            invitation = (
+                OrganizationInvitation.objects.select_for_update()
+                .filter(
+                    pk=invitation_id,
+                    organization=organization,
+                    accepted_at__isnull=True,
+                    revoked_at__isnull=True,
+                    expires_at__gt=timezone.now(),
+                )
+                .first()
+            )
+            if invitation is None:
+                raise NotFound("This pending invitation could not be found.")
+            invitation.revoked_at = timezone.now()
+            invitation.save(update_fields=["revoked_at"])
+        return Response(OrganizationInvitationSerializer(invitation).data)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="invitations/accept",
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def accept_invitation(self, request):
+        serializer = AcceptOrganizationInvitationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        digest = hashlib.sha256(
+            serializer.validated_data["token"].encode()
+        ).hexdigest()
+        with transaction.atomic():
+            invitation = (
+                OrganizationInvitation.objects.select_for_update()
+                .select_related("organization")
+                .filter(
+                    token_digest=digest,
+                    accepted_at__isnull=True,
+                    revoked_at__isnull=True,
+                    expires_at__gt=timezone.now(),
+                    organization__status=Organization.Status.APPROVED,
+                )
+                .first()
+            )
+            if invitation is None:
+                raise NotFound("This invitation is invalid, expired, or revoked.")
+            if not request.user.email_verified:
+                raise PermissionDenied(
+                    "Verify your email address before accepting invitations."
+                )
+            if invitation.email.casefold() != request.user.email.casefold():
+                raise PermissionDenied(
+                    "Sign in with the verified email address this invitation was sent to."
+                )
+            if Membership.objects.filter(
+                organization=invitation.organization, user=request.user
+            ).exists():
+                raise ValidationError(
+                    {"detail": "You are already a member of this workspace."}
+                )
+
+            locked_organization = Organization.objects.select_for_update().get(
+                pk=invitation.organization_id
+            )
+            enforce_member_limit(locked_organization)
+            membership = Membership.objects.create(
+                organization=locked_organization,
+                user=request.user,
+                role=invitation.role,
+            )
+            invitation.accepted_by = request.user
+            invitation.accepted_at = timezone.now()
+            invitation.save(update_fields=["accepted_by", "accepted_at"])
+        return Response(
+            {
+                "membership": MembershipSerializer(membership).data,
+                "organization_name": locked_organization.name,
+                "organization_slug": locked_organization.slug,
+            }
         )
 
     @action(detail=True, methods=["get"], url_path="analytics")

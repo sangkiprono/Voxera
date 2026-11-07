@@ -89,6 +89,16 @@ export interface OrganizationMember {
   joined_at: string;
 }
 
+export interface OrganizationInvitation {
+  id: number;
+  email: string;
+  role: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  invited_by_name: string;
+  expires_at: string;
+  created_at: string;
+}
+
 export interface OrganizationApplication extends Organization {}
 
 export interface OrganizationAnalytics {
@@ -501,6 +511,40 @@ export const api = {
 
   members(slug: string) {
     return request<OrganizationMember[]>(`/organizations/${slug}/members/`);
+  },
+
+  invitations(slug: string) {
+    return request<OrganizationInvitation[]>(
+      `/organizations/${slug}/invitations/`,
+    );
+  },
+
+  createInvitation(
+    slug: string,
+    payload: { email: string; role: string },
+  ) {
+    return request<OrganizationInvitation>(
+      `/organizations/${slug}/invitations/`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  },
+
+  revokeInvitation(slug: string, invitationId: number) {
+    return request<OrganizationInvitation>(
+      `/organizations/${slug}/invitations/${invitationId}/revoke/`,
+      { method: "POST" },
+    );
+  },
+
+  acceptOrganizationInvitation(token: string) {
+    return request<{
+      membership: OrganizationMember;
+      organization_name: string;
+      organization_slug: string;
+    }>("/organizations/invitations/accept/", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
   },
 
   organizationAnalytics(slug: string) {

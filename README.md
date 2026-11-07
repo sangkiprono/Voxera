@@ -6,6 +6,7 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 
 - Email/password account registration and sign-in with email verification, password reset, mandatory TOTP authenticator setup, one-time recovery codes, sign-out, and profile editing.
 - Organization workspace requests with manual staff approval, followed by owner, administrator, creator, and member roles.
+- Owner/admin-managed email invitations with role assignment, seven-day expiry, revocation, and verified matching-account acceptance.
 - Organization dashboards with member, poll, survey, and response totals; daily poll/survey trends over 30 days; and top-five poll and survey response counts (owners and administrators only).
 - Admin-configured subscription plans and workspace usage caps for members, active polls, and active surveys. Checkout and payment processing are intentionally disabled pending provider and pricing decisions.
 - In-app notifications for workspace additions and activity comments, with recipient-only inboxes and read controls.
@@ -93,6 +94,7 @@ GitHub Actions runs the Django suite against PostgreSQL and builds the React app
 - `POST /api/v1/auth/register/`, `POST /api/v1/auth/login/`, `POST /api/v1/auth/logout/`, `GET|PATCH /api/v1/auth/me/`
 - `POST /api/v1/auth/email/verification/`, `POST /api/v1/auth/email/verification/resend/`, `POST /api/v1/auth/password/reset/request/`, `POST /api/v1/auth/password/reset/confirm/`
 - `GET|POST /api/v1/organizations/`; `GET|PATCH|DELETE /api/v1/organizations/{slug}/`; `GET|POST /api/v1/organizations/{slug}/members/`; `GET /api/v1/organizations/{slug}/analytics/`; `GET /api/v1/organizations/{slug}/subscription/` (owner/admin only)
+- `GET|POST /api/v1/organizations/{slug}/invitations/`; `POST /api/v1/organizations/{slug}/invitations/{id}/revoke/` (owner/admin only); `POST /api/v1/organizations/invitations/accept/` (verified matching account only)
 - `GET /api/v1/organizations/applications/` (applicant's requests; staff see pending requests); `POST /api/v1/organizations/{slug}/review/` (staff only, requires decision and reason)
 - `GET|POST /api/v1/polls/`; `GET|PATCH|DELETE /api/v1/polls/{id}/`; `POST /api/v1/polls/{id}/responses/`; `GET /api/v1/polls/{id}/results/`
 - `GET|POST /api/v1/polls/{id}/comments/`; `PATCH /api/v1/polls/{id}/comments/{comment_id}/moderate/`

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   api,
   type Election,
   type OrganizationAnalytics,
+  type OrganizationInvitation,
   type Organization,
   type OrganizationMember,
   type OrganizationSubscriptionStatus,
@@ -37,6 +38,10 @@ function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [authChallengeId, setAuthChallengeId] = useState<string | null>(null);
+  const [invitationToken, setInvitationToken] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("accept_invite"),
+  );
+  const handledInvitationToken = useRef<string | null>(null);
   const [passwordResetToken, setPasswordResetToken] = useState<string | null>(() =>
     new URLSearchParams(window.location.search).get("reset_password"),
   );
@@ -47,6 +52,7 @@ function App() {
   const [organizationFormOpen, setOrganizationFormOpen] = useState(false);
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
+  const [organizationInvitations, setOrganizationInvitations] = useState<OrganizationInvitation[]>([]);
   const [organizationAnalytics, setOrganizationAnalytics] = useState<OrganizationAnalytics | null>(null);
   const [organizationSubscription, setOrganizationSubscription] = useState<OrganizationSubscriptionStatus | null>(null);
   const [organizationElections, setOrganizationElections] = useState<Election[]>([]);
@@ -65,6 +71,10 @@ function App() {
 
   useEffect(() => {
     const url = new URL(window.location.href);
+    if (url.searchParams.has("accept_invite")) {
+      url.searchParams.delete("accept_invite");
+      window.history.replaceState(null, "", url);
+    }
     const verificationToken = url.searchParams.get("verify_email");
     if (verificationToken) {
       url.searchParams.delete("verify_email");
@@ -118,6 +128,37 @@ function App() {
       setLoading(false);
     }
   }, [authRestored, user]);
+
+  useEffect(() => {
+    if (invitationToken && authRestored && !user) {
+      setRegistering(false);
+      setAuthOpen(true);
+    }
+    if (
+      !invitationToken ||
+      !authRestored ||
+      !user?.email_verified ||
+      !user.mfa_enrolled ||
+      handledInvitationToken.current === invitationToken
+    ) {
+      return;
+    }
+    handledInvitationToken.current = invitationToken;
+    void api.acceptOrganizationInvitation(invitationToken)
+      .then(async (membership) => {
+        setInvitationToken(null);
+        setNotice(`You joined ${membership.organization_name}.`);
+        await loadData();
+      })
+      .catch((acceptError: unknown) => {
+        setError(
+          acceptError instanceof Error
+            ? acceptError.message
+            : "Could not accept this workspace invitation.",
+        );
+        setInvitationToken(null);
+      });
+  }, [authRestored, invitationToken, loadData, user]);
 
   const loadNotifications = useCallback(async () => {
     if (!user || !user.mfa_enrolled || !user.email_verified) {
@@ -427,7 +468,7 @@ function App() {
     setBusy(true);
     try {
       const canViewAnalytics = ["owner", "admin"].includes(organization.role);
-      const [members, analytics, subscription, elections] = await Promise.all([
+      const [members, analytics, subscription, elections, invitations] = await Promise.all([
         api.members(organization.slug),
         canViewAnalytics
           ? api.organizationAnalytics(organization.slug)
@@ -436,8 +477,10 @@ function App() {
           ? api.organizationSubscription(organization.slug)
           : Promise.resolve(null),
         api.elections(),
+        canViewAnalytics ? api.invitations(organization.slug) : Promise.resolve([]),
       ]);
       setOrganizationMembers(members);
+      setOrganizationInvitations(invitations);
       setOrganizationAnalytics(analytics);
       setOrganizationSubscription(subscription);
       setOrganizationElections(
@@ -578,25 +621,37 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await api.addMember(
+      await api.createInvitation(
         activeOrganization.slug,
-        String(formData.get("email")),
-        String(formData.get("role")),
+        {
+          email: String(formData.get("email")),
+          role: String(formData.get("role")),
+        },
       );
-      const [members, analytics, subscription] = await Promise.all([
-        api.members(activeOrganization.slug),
-        api.organizationAnalytics(activeOrganization.slug),
-        api.organizationSubscription(activeOrganization.slug),
-      ]);
-      setOrganizationMembers(members);
-      setOrganizationAnalytics(analytics);
-      setOrganizationSubscription(subscription);
-      await loadNotifications();
-      await loadData();
-      setNotice("Workspace member added.");
+      setOrganizationInvitations(await api.invitations(activeOrganization.slug));
+      setNotice("Invitation email sent. It expires in 7 days.");
     } catch (memberError) {
       setError(
         memberError instanceof Error ? memberError.message : "Could not add member.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeInvitation(invitationId: number) {
+    if (!activeOrganization) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.revokeInvitation(activeOrganization.slug, invitationId);
+      setOrganizationInvitations(await api.invitations(activeOrganization.slug));
+      setNotice("Invitation revoked.");
+    } catch (revokeError) {
+      setError(
+        revokeError instanceof Error
+          ? revokeError.message
+          : "Could not revoke the invitation.",
       );
     } finally {
       setBusy(false);
@@ -1534,6 +1589,35 @@ function App() {
                 <span className="role-pill">{member.role}</span>
               </div>
             ))}
+            {["owner", "admin"].includes(activeOrganization.role) && (
+              <section className="member-list" aria-label="Workspace invitations">
+                <p className="field-label">Invitations</p>
+                {organizationInvitations.map((invitation) => (
+                  <div className="member-row" key={invitation.id}>
+                    <span className="member-name">
+                      {invitation.email}
+                      <small>
+                        {invitation.role} · expires{" "}
+                        {new Date(invitation.expires_at).toLocaleDateString()}
+                      </small>
+                    </span>
+                    <span className={`role-pill ${invitation.status}`}>
+                      {invitation.status}
+                    </span>
+                    {invitation.status === "pending" && (
+                      <button
+                        className="results-button"
+                        disabled={busy}
+                        onClick={() => void revokeInvitation(invitation.id)}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {organizationInvitations.length === 0 && <p>No invitations sent.</p>}
+              </section>
+            )}
           </div>
           <section className="workspace-elections">
             <h3>Organization elections</h3>
@@ -1627,7 +1711,7 @@ function App() {
           </section>
           {["owner", "admin"].includes(activeOrganization.role) && (
             <form className="member-form" onSubmit={(event) => void handleAddMember(event)}>
-              <p className="field-label">Add someone with an existing Voxera account</p>
+              <p className="field-label">Invite someone by email</p>
               <Field label="Email address">
                 <input name="email" type="email" placeholder="teammate@example.com" required />
               </Field>
@@ -1640,10 +1724,10 @@ function App() {
                   </select>
                 </Field>
                 <button className="button button-primary member-submit" type="submit" disabled={busy}>
-                  Add member <span aria-hidden="true">↗</span>
+                  Send invitation <span aria-hidden="true">↗</span>
                 </button>
               </div>
-              <span className="form-hint">Invitations by email will be available in a later release.</span>
+              <span className="form-hint">Invitations expire after 7 days and can only be accepted by a verified matching account.</span>
             </form>
           )}
         </Modal>

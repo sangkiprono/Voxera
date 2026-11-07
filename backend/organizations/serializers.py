@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import Membership, Organization
+from .models import Membership, Organization, OrganizationInvitation
 from subscriptions.limits import enforce_member_limit
 
 User = get_user_model()
@@ -112,3 +112,58 @@ class AddMemberSerializer(serializers.Serializer):
             user=validated_data["email"],
             role=validated_data["role"],
         )
+
+
+class OrganizationInvitationSerializer(serializers.ModelSerializer):
+    invited_by_name = serializers.SerializerMethodField()
+    status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = OrganizationInvitation
+        fields = (
+            "id",
+            "email",
+            "role",
+            "status",
+            "invited_by_name",
+            "expires_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_invited_by_name(self, invitation):
+        return invitation.invited_by.get_full_name() or invitation.invited_by.email
+
+
+class CreateOrganizationInvitationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(
+        choices=(
+            Membership.Role.ADMIN,
+            Membership.Role.CREATOR,
+            Membership.Role.MEMBER,
+        ),
+        default=Membership.Role.MEMBER,
+    )
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate(self, attrs):
+        organization = self.context["organization"]
+        email = attrs["email"]
+        if Membership.objects.filter(
+            organization=organization, user__email__iexact=email
+        ).exists():
+            raise serializers.ValidationError(
+                {"email": "This person is already a member."}
+            )
+        return attrs
+
+
+class AcceptOrganizationInvitationSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=64)
+
+
+class RevokeOrganizationInvitationSerializer(serializers.Serializer):
+    invitation_id = serializers.IntegerField(min_value=1)
