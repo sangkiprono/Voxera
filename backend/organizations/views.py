@@ -120,6 +120,18 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             active=Count("id", filter=Q(status=Survey.Status.ACTIVE), distinct=True),
             responses=Count("responses", distinct=True),
         )
+        top_polls = list(
+            polls.order_by()
+            .annotate(response_count=Count("responses", distinct=True))
+            .order_by("-response_count", "-created_at", "id")
+            .values("id", "title", "status", "response_count")[:5]
+        )
+        top_surveys = list(
+            surveys.order_by()
+            .annotate(response_count=Count("responses", distinct=True))
+            .order_by("-response_count", "-created_at", "id")
+            .values("id", "title", "status", "response_count")[:5]
+        )
         today = timezone.localdate()
         start_date = today - timedelta(days=29)
         start_at = timezone.make_aware(datetime.combine(start_date, time.min))
@@ -163,6 +175,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 "active_survey_count": survey_stats["active"],
                 "survey_response_count": survey_stats["responses"],
                 "daily_activity": daily_activity,
+                "top_polls": top_polls,
+                "top_surveys": top_surveys,
             }
         )
 

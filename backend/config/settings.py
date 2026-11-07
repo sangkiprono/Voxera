@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 from pathlib import Path
 import os
 from django.core.exceptions import ImproperlyConfigured
+import base64
+import hashlib
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,9 +25,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-voxera-key-not-for-production")
+MFA_ENCRYPTION_KEY = os.environ.get("MFA_ENCRYPTION_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
+if not MFA_ENCRYPTION_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            "Production requires a dedicated MFA_ENCRYPTION_KEY."
+        )
+    MFA_ENCRYPTION_KEY = base64.urlsafe_b64encode(
+        hashlib.sha256(f"{SECRET_KEY}:voxera-mfa".encode()).digest()
+    ).decode()
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -70,6 +81,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'accounts.middleware.AdminMFAMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -210,7 +222,7 @@ AUTH_USER_MODEL = "accounts.User"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.TokenAuthentication",
+        "accounts.authentication.MFAEnforcingTokenAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -222,5 +234,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "30/hour",
         "user": "5000/hour",
+        "auth": "10/hour",
+        "mfa": "10/hour",
     },
 }

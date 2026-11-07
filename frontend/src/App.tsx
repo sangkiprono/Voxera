@@ -29,11 +29,14 @@ function App() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [view, setView] = useState<View>("discover");
   const [loading, setLoading] = useState(true);
+  const [authRestored, setAuthRestored] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
   const [registering, setRegistering] = useState(false);
+  const [authChallengeId, setAuthChallengeId] = useState<string | null>(null);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [pollFormOpen, setPollFormOpen] = useState(false);
   const [organizationFormOpen, setOrganizationFormOpen] = useState(false);
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
@@ -48,8 +51,17 @@ function App() {
   const [expandedPoll, setExpandedPoll] = useState<number | null>(null);
   const [expandedCommentPoll, setExpandedCommentPoll] = useState<number | null>(null);
   const [choices, setChoices] = useState<Record<number, number>>({});
+  const [sharedPollId, setSharedPollId] = useState<number | null>(() => {
+    const pollId = Number(new URLSearchParams(window.location.search).get("poll"));
+    return Number.isSafeInteger(pollId) && pollId > 0 ? pollId : null;
+  });
+  const [sharingPoll, setSharingPoll] = useState<Poll | null>(null);
 
   const loadData = useCallback(async () => {
+    if (!authRestored || (user && !user.mfa_enrolled)) {
+      setLoading(false);
+      return;
+    }
     setError("");
     try {
       const [pollData, surveyData, organizationData] = await Promise.all([
@@ -69,10 +81,10 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [authRestored, user]);
 
   const loadNotifications = useCallback(async () => {
-    if (!user) {
+    if (!user || !user.mfa_enrolled) {
       setNotifications([]);
       setUnreadNotifications(0);
       return;
@@ -98,6 +110,7 @@ function App() {
     async function restoreSession() {
       if (!sessionStorage.getItem("voxera-token")) {
         setLoading(false);
+        setAuthRestored(true);
         return;
       }
       try {
@@ -106,7 +119,10 @@ function App() {
       } catch {
         sessionStorage.removeItem("voxera-token");
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setAuthRestored(true);
+        }
       }
     }
     void restoreSession();
@@ -128,11 +144,47 @@ function App() {
 
   const visiblePolls = useMemo(
     () =>
-      view === "mine" && user
-        ? polls.filter((poll) => poll.created_by === user.id)
-        : polls,
-    [polls, user, view],
+      sharedPollId !== null
+        ? polls.filter((poll) => poll.id === sharedPollId)
+        : view === "mine" && user
+          ? polls.filter((poll) => poll.created_by === user.id)
+          : polls,
+    [polls, sharedPollId, user, view],
   );
+
+  function openPollShare(poll: Poll) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("poll", String(poll.id));
+    url.hash = "";
+    window.history.replaceState(null, "", url);
+    setSharedPollId(poll.id);
+    setSharingPoll(poll);
+  }
+
+  function clearSharedPoll() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("poll");
+    window.history.replaceState(null, "", url);
+    setSharedPollId(null);
+    setView("discover");
+  }
+
+  async function copyPollLink() {
+    if (!sharingPoll) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("poll", String(sharingPoll.id));
+    url.hash = "";
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setNotice("Poll link copied. Send it to anyone you want to invite.");
+    } catch (copyError) {
+      setError(
+        copyError instanceof Error
+          ? `Could not copy the poll link: ${copyError.message}`
+          : "Could not copy the poll link.",
+      );
+    }
+  }
 
   async function handleAuth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -140,25 +192,63 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      const nextUser = registering
-        ? await api.register({
+      let nextUser: User | null;
+      if (registering) {
+        nextUser = await api.register({
             email: String(formData.get("email")),
             password: String(formData.get("password")),
             first_name: String(formData.get("first_name")),
             last_name: String(formData.get("last_name")),
-          })
-        : await api.login(
+          });
+      } else {
+        const login = await api.login(
             String(formData.get("email")),
             String(formData.get("password")),
           );
+        if (login.challengeId) {
+          setAuthChallengeId(login.challengeId);
+          return;
+        }
+        nextUser = login.user ?? null;
+      }
+      if (!nextUser) throw new Error("Sign-in did not return an account.");
       setUser(nextUser);
       setAuthOpen(false);
+      setAuthChallengeId(null);
       setNotice(registering ? "Your Voxera account is ready." : "Welcome back.");
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : "Sign-in failed.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleMFALogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!authChallengeId) return;
+    const formData = new FormData(event.currentTarget);
+    setBusy(true);
+    setError("");
+    try {
+      const nextUser = await api.completeMFALogin(
+        authChallengeId,
+        String(formData.get("mfa_code")).trim(),
+      );
+      setUser(nextUser);
+      setAuthOpen(false);
+      setAuthChallengeId(null);
+      setNotice("Welcome back.");
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : "Could not verify your code.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleMFASetupComplete(nextUser: User, codes: string[]) {
+    setUser(nextUser);
+    setRecoveryCodes(codes);
+    setNotice("Authenticator enabled. Save your recovery codes before continuing.");
   }
 
   async function handleSignOut() {
@@ -197,7 +287,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await api.createPoll({
+      const poll = await api.createPoll({
         title: String(formData.get("title")).trim(),
         question: String(formData.get("question")).trim(),
         description: String(formData.get("description")).trim(),
@@ -212,6 +302,7 @@ function App() {
       });
       setPollFormOpen(false);
       setView("mine");
+      openPollShare(poll);
       setNotice("Your poll is live.");
       await loadData();
     } catch (pollError) {
@@ -517,6 +608,15 @@ function App() {
         ),
       )
     : 1;
+
+  if (user && !user.mfa_enrolled) {
+    return (
+      <MFASetup
+        onComplete={handleMFASetupComplete}
+        onSignOut={() => void handleSignOut()}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -828,12 +928,22 @@ function App() {
                   <div>
                     <h2>{view === "mine" ? "Your polls" : "Open questions"}</h2>
                     <span className="section-subtitle">
-                      {view === "mine" ? "Your ideas, out in the world." : "A few things people are thinking about."}
+                      {sharedPollId !== null
+                        ? "You’re viewing a poll someone shared with you."
+                        : view === "mine"
+                          ? "Your ideas, out in the world."
+                          : "A few things people are thinking about."}
                     </span>
                   </div>
-                  <span className="results-count">
-                    {visiblePolls.length} {visiblePolls.length === 1 ? "poll" : "polls"}
-                  </span>
+                  {sharedPollId !== null ? (
+                    <button className="results-button" onClick={clearSharedPoll}>
+                      Explore all polls →
+                    </button>
+                  ) : (
+                    <span className="results-count">
+                      {visiblePolls.length} {visiblePolls.length === 1 ? "poll" : "polls"}
+                    </span>
+                  )}
                 </section>
 
                 {loading ? (
@@ -841,9 +951,25 @@ function App() {
                 ) : visiblePolls.length === 0 ? (
                   <div className="empty-state">
                     <span className="empty-icon">◌</span>
-                    <h2>{view === "mine" ? "Your first question is waiting." : "It’s quiet here for now."}</h2>
-                    <p>{view === "mine" ? "Start a poll and invite people into the conversation." : "Be the first to ask something worth thinking about."}</p>
-                    <button className="button button-primary" onClick={openCreatePoll}>Create a poll</button>
+                    <h2>
+                      {sharedPollId !== null
+                        ? "This poll isn’t available."
+                        : view === "mine"
+                          ? "Your first question is waiting."
+                          : "It’s quiet here for now."}
+                    </h2>
+                    <p>
+                      {sharedPollId !== null
+                        ? "It may have been removed, closed to the public, or limited to workspace members."
+                        : view === "mine"
+                          ? "Start a poll and invite people into the conversation."
+                          : "Be the first to ask something worth thinking about."}
+                    </p>
+                    {sharedPollId !== null ? (
+                      <button className="button button-primary" onClick={clearSharedPoll}>Explore all polls</button>
+                    ) : (
+                      <button className="button button-primary" onClick={openCreatePoll}>Create a poll</button>
+                    )}
                   </div>
                 ) : (
                   <div className="poll-grid">
@@ -953,6 +1079,12 @@ function App() {
                             )}
                             <button
                               className="results-button"
+                              onClick={() => openPollShare(poll)}
+                            >
+                              Share poll <span aria-hidden="true">↗</span>
+                            </button>
+                            <button
+                              className="results-button"
                               onClick={() =>
                                 setExpandedCommentPoll(
                                   expandedCommentPoll === poll.id ? null : poll.id,
@@ -988,25 +1120,67 @@ function App() {
       </div>
 
       {authOpen && (
-        <Modal onClose={() => setAuthOpen(false)} title={registering ? "Find your voice." : "Welcome back."} eyebrow="YOUR VOXERA ACCOUNT">
-          <p className="modal-copy">{registering ? "Join the conversation and make your opinion count." : "Sign in to pick up where you left off."}</p>
-          <form className="form-stack" onSubmit={(event) => void handleAuth(event)}>
-            {registering && (
-              <div className="form-row">
-                <Field label="First name"><input name="first_name" autoComplete="given-name" required /></Field>
-                <Field label="Last name"><input name="last_name" autoComplete="family-name" required /></Field>
-              </div>
-            )}
-            <Field label="Email address"><input name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></Field>
-            <Field label="Password"><input name="password" type="password" autoComplete={registering ? "new-password" : "current-password"} minLength={8} required /></Field>
-            <button className="button button-primary form-submit" type="submit" disabled={busy}>
-              {busy ? "One moment…" : registering ? "Create your account" : "Log in"}
-            </button>
-          </form>
-          <p className="switch-auth">
-            {registering ? "Already have an account?" : "New to Voxera?"}{" "}
-            <button onClick={() => setRegistering(!registering)}>{registering ? "Log in" : "Create an account"}</button>
-          </p>
+        <Modal
+          onClose={() => {
+            setAuthOpen(false);
+            setAuthChallengeId(null);
+          }}
+          title={authChallengeId ? "Verify it’s you." : registering ? "Find your voice." : "Welcome back."}
+          eyebrow={authChallengeId ? "AUTHENTICATOR CHECK" : "YOUR VOXERA ACCOUNT"}
+        >
+          {authChallengeId ? (
+            <>
+              <p className="modal-copy">Enter the current six-digit code from your authenticator app, or a saved recovery code.</p>
+              <form className="form-stack" onSubmit={(event) => void handleMFALogin(event)}>
+                <Field label="Authenticator or recovery code">
+                  <input name="mfa_code" autoComplete="one-time-code" autoFocus required />
+                </Field>
+                <button className="button button-primary form-submit" type="submit" disabled={busy}>
+                  {busy ? "Verifying…" : "Verify and sign in"}
+                </button>
+              </form>
+              <p className="switch-auth">
+                <button onClick={() => setAuthChallengeId(null)}>Back to sign in</button>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="modal-copy">{registering ? "Join the conversation and make your opinion count." : "Sign in to pick up where you left off."}</p>
+              <form className="form-stack" onSubmit={(event) => void handleAuth(event)}>
+                {registering && (
+                  <div className="form-row">
+                    <Field label="First name"><input name="first_name" autoComplete="given-name" required /></Field>
+                    <Field label="Last name"><input name="last_name" autoComplete="family-name" required /></Field>
+                  </div>
+                )}
+                <Field label="Email address"><input name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></Field>
+                <Field label="Password"><input name="password" type="password" autoComplete={registering ? "new-password" : "current-password"} minLength={8} required /></Field>
+                <button className="button button-primary form-submit" type="submit" disabled={busy}>
+                  {busy ? "One moment…" : registering ? "Create your account" : "Log in"}
+                </button>
+              </form>
+              <p className="switch-auth">
+                {registering ? "Already have an account?" : "New to Voxera?"}{" "}
+                <button onClick={() => setRegistering(!registering)}>{registering ? "Log in" : "Create an account"}</button>
+              </p>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {recoveryCodes && (
+        <Modal
+          onClose={() => setRecoveryCodes(null)}
+          title="Save your recovery codes."
+          eyebrow="ONE-TIME ACCOUNT RECOVERY"
+        >
+          <p className="modal-copy">Each code works once if you lose access to your authenticator. Store them somewhere private; Voxera cannot show them again.</p>
+          <div className="mfa-recovery-codes">
+            {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
+          </div>
+          <button className="button button-primary form-submit" onClick={() => setRecoveryCodes(null)}>
+            I’ve saved these codes
+          </button>
         </Modal>
       )}
 
@@ -1039,6 +1213,40 @@ function App() {
               {busy ? "Publishing…" : "Publish poll"} <span aria-hidden="true">↗</span>
             </button>
           </form>
+        </Modal>
+      )}
+
+      {sharingPoll && (
+        <Modal
+          onClose={() => setSharingPoll(null)}
+          title="Share your poll."
+          eyebrow="INVITE PEOPLE TO RESPOND"
+        >
+          <p className="modal-copy">
+            Send this link to open the poll directly.
+            {sharingPoll.visibility === "private"
+              ? " Only members of its workspace can access this private poll."
+              : " People need a Voxera account to submit an account-linked response."}
+          </p>
+          <div className="form-stack">
+            <Field label="Poll link">
+              <input
+                className="share-link-input"
+                aria-label="Poll share link"
+                readOnly
+                value={(() => {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("poll", String(sharingPoll.id));
+                  url.hash = "";
+                  return url.toString();
+                })()}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </Field>
+            <button className="button button-primary form-submit" onClick={() => void copyPollLink()}>
+              Copy link
+            </button>
+          </div>
         </Modal>
       )}
 
@@ -1122,6 +1330,32 @@ function App() {
                   <span><i className="poll-legend" /> Polls</span>
                   <span><i className="survey-legend" /> Surveys</span>
                 </div>
+              </div>
+              <div className="analytics-activity-breakdown">
+                <h4>Polls with most responses</h4>
+                {organizationAnalytics.top_polls.length ? (
+                  organizationAnalytics.top_polls.map((poll) => (
+                    <div className="analytics-activity-row" key={poll.id}>
+                      <span title={poll.title}>{poll.title}</span>
+                      <strong>{poll.response_count}</strong>
+                    </div>
+                  ))
+                ) : (
+                  <p>No polls have been created yet.</p>
+                )}
+              </div>
+              <div className="analytics-activity-breakdown">
+                <h4>Surveys with most responses</h4>
+                {organizationAnalytics.top_surveys.length ? (
+                  organizationAnalytics.top_surveys.map((survey) => (
+                    <div className="analytics-activity-row" key={survey.id}>
+                      <span title={survey.title}>{survey.title}</span>
+                      <strong>{survey.response_count}</strong>
+                    </div>
+                  ))
+                ) : (
+                  <p>No surveys have been created yet.</p>
+                )}
               </div>
             </section>
           )}
@@ -1248,6 +1482,113 @@ function App() {
         </Modal>
       )}
     </div>
+  );
+}
+
+function MFASetup({
+  onComplete,
+  onSignOut,
+}: {
+  onComplete: (user: User, recoveryCodes: string[]) => void;
+  onSignOut: () => void;
+}) {
+  const [setup, setSetup] = useState<{ secret: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [setupAttempt, setSetupAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    void api.startMFASetup()
+      .then(({ secret }) => {
+        if (active) setSetup({ secret });
+      })
+      .catch((setupError: unknown) => {
+        if (active) {
+          setError(
+            setupError instanceof Error
+              ? setupError.message
+              : "Could not start authenticator setup.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [setupAttempt]);
+
+  async function confirmSetup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.confirmMFASetup(String(formData.get("code")).trim());
+      onComplete(result.user, result.recovery_codes);
+    } catch (confirmError) {
+      setError(
+        confirmError instanceof Error
+          ? confirmError.message
+          : "Could not verify the authenticator code.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="mfa-setup-screen">
+      <section className="mfa-setup-panel">
+        <p className="eyebrow">SECURE YOUR ACCOUNT</p>
+        <h1>Set up your authenticator.</h1>
+        <p className="welcome-copy">
+          Voxera requires an authenticator code to protect your account. Add this
+          key to an authenticator app, then enter the six-digit code it gives you.
+        </p>
+        {loading ? (
+          <div className="loading-state"><span className="spinner" /> Preparing secure setup…</div>
+        ) : setup ? (
+          <form className="form-stack" onSubmit={(event) => void confirmSetup(event)}>
+            <Field label="Authenticator key">
+              <code className="mfa-secret">{setup.secret}</code>
+            </Field>
+            <Field label="Six-digit code">
+              <input
+                name="code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+              />
+            </Field>
+            {error && <div className="error-banner" role="alert">{error}</div>}
+            <button className="button button-primary form-submit" type="submit" disabled={busy}>
+              {busy ? "Verifying…" : "Enable authenticator"}
+            </button>
+          </form>
+        ) : (
+          <>
+            {error && <div className="error-banner" role="alert">{error}</div>}
+            <button
+              className="button button-primary form-submit"
+              onClick={() => {
+                setError("");
+                setLoading(true);
+                setSetupAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Retry setup
+            </button>
+          </>
+        )}
+        <button className="results-button" onClick={onSignOut}>Sign out</button>
+      </section>
+    </main>
   );
 }
 

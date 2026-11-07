@@ -6,10 +6,15 @@ User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    mfa_enrolled = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ("id", "email", "first_name", "last_name")
+        fields = ("id", "email", "first_name", "last_name", "mfa_enrolled")
         read_only_fields = ("id", "email")
+
+    def get_mfa_enrolled(self, user):
+        return hasattr(user, "mfa_device") and user.mfa_device.is_confirmed
 
 
 class RegistrationSerializer(serializers.ModelSerializer):
@@ -38,7 +43,12 @@ class RegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop("password")
-        return User.objects.create_user(password=password, **validated_data)
+        return User.objects.create_user(
+            email=validated_data["email"],
+            password=password,
+            first_name=validated_data.get("first_name", ""),
+            last_name=validated_data.get("last_name", ""),
+        )
 
 
 class LoginSerializer(serializers.Serializer):
@@ -47,3 +57,18 @@ class LoginSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         return value.strip().lower()
+
+
+class MFACodeSerializer(serializers.Serializer):
+    code = serializers.RegexField(r"^[A-Za-z0-9-]{6,40}$", trim_whitespace=True)
+
+    def validate_code(self, value):
+        return value.replace("-", "").upper()
+
+
+class MFALoginSerializer(MFACodeSerializer):
+    challenge_id = serializers.CharField(max_length=64)
+
+
+class MFASetupConfirmSerializer(MFACodeSerializer):
+    code = serializers.RegexField(r"^\d{6}$", trim_whitespace=True)

@@ -6,6 +6,7 @@ export interface User {
   email: string;
   first_name: string;
   last_name: string;
+  mfa_enrolled: boolean;
 }
 
 export interface PollOption {
@@ -96,6 +97,18 @@ export interface OrganizationAnalytics {
     date: string;
     poll_responses: number;
     survey_responses: number;
+  }>;
+  top_polls: Array<{
+    id: number;
+    title: string;
+    status: "draft" | "active" | "closed";
+    response_count: number;
+  }>;
+  top_surveys: Array<{
+    id: number;
+    title: string;
+    status: "draft" | "active" | "closed";
+    response_count: number;
   }>;
 }
 
@@ -206,6 +219,20 @@ interface AuthResponse {
   user: User;
 }
 
+interface MFALoginChallenge {
+  mfa_required: true;
+  challenge_id: string;
+}
+
+interface MFASetupResponse {
+  secret: string;
+  provisioning_uri: string;
+}
+
+interface MFASetupConfirmation extends AuthResponse {
+  recovery_codes: string[];
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = sessionStorage.getItem(TOKEN_KEY);
@@ -288,12 +315,39 @@ export const api = {
   },
 
   async login(email: string, password: string) {
-    const result = await request<AuthResponse>("/auth/login/", {
+    const result = await request<AuthResponse | MFALoginChallenge>("/auth/login/", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
+    if ("mfa_required" in result) {
+      return { challengeId: result.challenge_id };
+    }
+    sessionStorage.setItem(TOKEN_KEY, result.token);
+    return { user: result.user };
+  },
+
+  async completeMFALogin(challengeId: string, code: string) {
+    const result = await request<AuthResponse>("/auth/login/mfa/", {
+      method: "POST",
+      body: JSON.stringify({ challenge_id: challengeId, code }),
+    });
     sessionStorage.setItem(TOKEN_KEY, result.token);
     return result.user;
+  },
+
+  startMFASetup() {
+    return request<MFASetupResponse>("/auth/mfa/setup/", {
+      method: "POST",
+    });
+  },
+
+  async confirmMFASetup(code: string) {
+    const result = await request<MFASetupConfirmation>("/auth/mfa/confirm/", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+    sessionStorage.setItem(TOKEN_KEY, result.token);
+    return result;
   },
 
   async currentUser() {

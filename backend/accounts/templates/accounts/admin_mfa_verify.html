@@ -1,0 +1,18 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <h1>Verify your authenticator</h1>
+  {% if error %}<p class="errornote">{{ error }}</p>{% endif %}
+  {% if mfa_enrolled %}
+    <p>Enter a current authenticator code or an unused recovery code to continue to Django admin.</p>
+    <form method="post">
+      {% csrf_token %}
+      <label for="id_code">Authenticator or recovery code</label>
+      <input id="id_code" name="code" maxlength="40" autocomplete="one-time-code" required>
+      <button type="submit">Verify</button>
+    </form>
+  {% else %}
+    <p>Your account must have an authenticator configured before using Django admin.</p>
+    <p><a href="/">Open the Voxera application</a>, sign in, and complete authenticator setup. Then return here.</p>
+  {% endif %}
+{% endblock %}

@@ -4,14 +4,14 @@ Voxera is a multi-tenant voting and opinion platform built with Django REST Fram
 
 ## What works today
 
-- Email-based account registration, sign-in, sign-out, and profile editing.
+- Email/password account registration and sign-in with mandatory TOTP authenticator setup, one-time recovery codes, sign-out, and profile editing.
 - Organization workspaces with owner, administrator, creator, and member roles.
-- Organization dashboards with member, poll, survey, and response totals plus daily poll/survey response trends over 30 days (owners and administrators only).
+- Organization dashboards with member, poll, survey, and response totals; daily poll/survey trends over 30 days; and top-five poll and survey response counts (owners and administrators only).
 - Admin-configured subscription plans and workspace usage caps for members, active polls, and active surveys. Checkout and payment processing are intentionally disabled pending provider and pricing decisions.
 - In-app notifications for workspace additions and activity comments, with recipient-only inboxes and read controls.
 - Optional queued SMTP email delivery for those notifications, with recorded failures, a five-attempt retry limit, and a management command for a single scheduled worker.
 - Low-stakes organization election setup: admin-created drafts, active-member eligibility snapshots at nomination opening, member self-nominations, and nomination close/cancel controls. Ballot casting is intentionally not implemented.
-- Public and restricted opinion polls, one response per signed-in account, and aggregate results.
+- Public and restricted opinion polls with direct share links, one response per signed-in account, and aggregate results.
 - Surveys with single- and multi-choice, text, and 1–5 rating questions; response collection; and manager-only reports.
 - CSV downloads for poll results and manager-authorized survey reports, with spreadsheet formula injection protection.
 - Account-linked comments on active polls and surveys; activity creators and workspace administrators can hide/restore comments, with moderation history.
@@ -53,11 +53,12 @@ npm run dev
 ```
 
 Vite proxies `/api` requests to Django. Open the local URL printed by Vite.
+After publishing a poll, copy its direct link from the share dialog. Public links open the selected poll; private polls remain limited to workspace members. Respondents must sign in, and local development links are only reachable from devices that can access your development server.
 
 ## Run with PostgreSQL and Docker
 
 1. Copy `.env.example` to `.env`.
-2. Set `DJANGO_SECRET_KEY` to a unique, random secret and `POSTGRES_PASSWORD` to a unique password. Never commit `.env`.
+2. Set `DJANGO_SECRET_KEY` to a unique, random secret, `MFA_ENCRYPTION_KEY` to a generated Fernet key, and `POSTGRES_PASSWORD` to a unique password. Never commit `.env`. Generate the MFA key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and keep it stable across deployments; losing or rotating it prevents decryption of existing authenticator secrets.
 3. Start the stack with `docker compose up --build`.
 4. Open `http://localhost:8080`; Django admin is at `/admin/`.
 
@@ -66,6 +67,8 @@ The bundled Compose configuration is a local/self-hosted starting point and expo
 To send notification emails, set `NOTIFICATIONS_EMAIL_ENABLED=true`, configure SMTP credentials and `DEFAULT_FROM_EMAIL`, then schedule a single backend worker to run `python manage.py send_notification_emails`. Delivery failures are retained and retried up to five times; notifications continue to work in-app if email delivery is unavailable.
 
 Subscription plans are configured in Django admin under **Subscription plans**, then assigned to organizations under **Organization subscriptions**. Unset caps are unlimited; organizations without a plan have no configured caps. The subscription panel and API expose plan and usage to organization owners/admins. There is no checkout, recurring charge, or payment-provider integration.
+
+New and existing accounts must enroll a TOTP authenticator before using protected application APIs. Login issues a short-lived challenge, and successful enrollment rotates the account's API token. Save the single-use recovery codes when they are shown. Local development derives an MFA encryption key from `DJANGO_SECRET_KEY`; production Compose requires the dedicated key above.
 
 ## Tests and checks
 

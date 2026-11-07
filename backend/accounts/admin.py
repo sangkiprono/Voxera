@@ -1,7 +1,10 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
+from .admin_auth import MFAAdminAuthenticationForm
 from .models import User
+
+admin.site.login_form = MFAAdminAuthenticationForm
 
 
 @admin.register(User)

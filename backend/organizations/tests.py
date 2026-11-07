@@ -129,34 +129,85 @@ class OrganizationApiTests(APITestCase):
         )
         option = PollOption.objects.create(poll=poll, text="Cafe", position=0)
         PollResponse.objects.create(poll=poll, user=self.other_user, option=option)
+        another_voter = User.objects.create_user(
+            email="another-voter@example.com", password="test-pass-12345"
+        )
+        popular_poll = Poll.objects.create(
+            title="Popular poll",
+            question="Which option?",
+            created_by=self.owner,
+            organization=organization,
+        )
+        popular_option = PollOption.objects.create(
+            poll=popular_poll, text="First", position=0
+        )
+        PollResponse.objects.create(
+            poll=popular_poll, user=self.other_user, option=popular_option
+        )
+        PollResponse.objects.create(
+            poll=popular_poll, user=another_voter, option=popular_option
+        )
+        Poll.objects.create(
+            title="Outside poll",
+            question="Not part of this workspace",
+            created_by=self.owner,
+        )
         survey = Survey.objects.create(
             title="Team feedback",
             created_by=self.owner,
             organization=organization,
         )
         SurveyResponse.objects.create(survey=survey, user=self.other_user)
+        popular_survey = Survey.objects.create(
+            title="Popular survey",
+            created_by=self.owner,
+            organization=organization,
+        )
+        SurveyResponse.objects.create(survey=popular_survey, user=self.other_user)
+        SurveyResponse.objects.create(survey=popular_survey, user=another_voter)
         url = "/api/v1/organizations/northstar/analytics/"
 
         self.client.force_authenticate(self.owner)
         analytics = self.client.get(url)
         self.assertEqual(analytics.status_code, 200)
         self.assertEqual(analytics.data["member_count"], 1)
-        self.assertEqual(analytics.data["poll_count"], 1)
-        self.assertEqual(analytics.data["active_poll_count"], 1)
-        self.assertEqual(analytics.data["poll_response_count"], 1)
-        self.assertEqual(analytics.data["survey_count"], 1)
-        self.assertEqual(analytics.data["active_survey_count"], 1)
-        self.assertEqual(analytics.data["survey_response_count"], 1)
+        self.assertEqual(analytics.data["poll_count"], 2)
+        self.assertEqual(analytics.data["active_poll_count"], 2)
+        self.assertEqual(analytics.data["poll_response_count"], 3)
+        self.assertEqual(analytics.data["survey_count"], 2)
+        self.assertEqual(analytics.data["active_survey_count"], 2)
+        self.assertEqual(analytics.data["survey_response_count"], 3)
+        self.assertEqual(
+            analytics.data["top_polls"][0],
+            {
+                "id": popular_poll.id,
+                "title": "Popular poll",
+                "status": Poll.Status.ACTIVE,
+                "response_count": 2,
+            },
+        )
+        self.assertEqual(
+            analytics.data["top_surveys"][0],
+            {
+                "id": popular_survey.id,
+                "title": "Popular survey",
+                "status": Survey.Status.ACTIVE,
+                "response_count": 2,
+            },
+        )
+        self.assertNotIn(
+            "Outside poll", [item["title"] for item in analytics.data["top_polls"]]
+        )
         self.assertEqual(len(analytics.data["daily_activity"]), 30)
         self.assertEqual(
             analytics.data["daily_activity"][-1]["date"],
             timezone.localdate().isoformat(),
         )
         self.assertEqual(
-            analytics.data["daily_activity"][-1]["poll_responses"], 1
+            analytics.data["daily_activity"][-1]["poll_responses"], 3
         )
         self.assertEqual(
-            analytics.data["daily_activity"][-1]["survey_responses"], 1
+            analytics.data["daily_activity"][-1]["survey_responses"], 3
         )
 
         Membership.objects.create(
