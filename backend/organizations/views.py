@@ -6,7 +6,7 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -22,6 +22,7 @@ from .serializers import (
     AddMemberSerializer,
     MembershipSerializer,
     OrganizationSerializer,
+    OrganizationReviewSerializer,
 )
 
 
@@ -32,7 +33,10 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return (
-            Organization.objects.filter(memberships__user=self.request.user)
+            Organization.objects.filter(
+                memberships__user=self.request.user,
+                status=Organization.Status.APPROVED,
+            )
             .annotate(member_count=Count("memberships"))
             .prefetch_related("memberships")
             .distinct()
@@ -40,12 +44,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def perform_create(self, serializer):
-        organization = serializer.save()
-        Membership.objects.create(
-            organization=organization,
-            user=self.request.user,
-            role=Membership.Role.OWNER,
-        )
+        serializer.save()
 
     def _require_admin(self, organization):
         membership = Membership.objects.filter(
@@ -58,6 +57,75 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             raise PermissionDenied(
                 "Only organization owners and administrators can do this."
             )
+
+    @action(detail=False, methods=["get"], url_path="applications")
+    def applications(self, request):
+        applications = Organization.objects.all()
+        if request.user.is_staff:
+            applications = applications.filter(status=Organization.Status.PENDING)
+        else:
+            applications = applications.filter(created_by=request.user)
+        applications = applications.order_by("-created_at")
+        return Response(
+            OrganizationSerializer(
+                applications,
+                many=True,
+                context=self.get_serializer_context(),
+            ).data
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="review",
+        permission_classes=[permissions.IsAdminUser],
+    )
+    def review(self, request, slug=None):
+        serializer = OrganizationReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            organization = (
+                Organization.objects.select_for_update()
+                .filter(slug=slug, status=Organization.Status.PENDING)
+                .first()
+            )
+            if organization is None:
+                raise NotFound("This organization request is no longer pending.")
+
+            approved = serializer.validated_data["status"] == Organization.Status.APPROVED
+            organization.status = serializer.validated_data["status"]
+            organization.review_reason = serializer.validated_data["reason"]
+            organization.reviewed_by = request.user
+            organization.reviewed_at = timezone.now()
+            organization.save(
+                update_fields=[
+                    "status",
+                    "review_reason",
+                    "reviewed_by",
+                    "reviewed_at",
+                ]
+            )
+            if approved:
+                Membership.objects.get_or_create(
+                    organization=organization,
+                    user=organization.created_by,
+                    defaults={"role": Membership.Role.OWNER},
+                )
+            Notification.objects.create(
+                recipient=organization.created_by,
+                actor=request.user,
+                kind=Notification.Kind.ORGANIZATION_REVIEW,
+                message=(
+                    f"Your organization request for {organization.name} was "
+                    f"{'approved' if approved else 'not approved'}."
+                )[:240],
+                organization=organization,
+            )
+        return Response(
+            OrganizationSerializer(
+                organization, context=self.get_serializer_context()
+            ).data
+        )
 
     def perform_update(self, serializer):
         self._require_admin(self.get_object())

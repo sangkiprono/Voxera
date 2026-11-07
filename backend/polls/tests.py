@@ -66,7 +66,8 @@ class PollApiTests(APITestCase):
 
     def test_private_results_export_requires_workspace_access(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization,
@@ -155,7 +156,8 @@ class PollApiTests(APITestCase):
 
     def test_only_workspace_creators_can_create_organization_polls(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization,
@@ -181,7 +183,8 @@ class PollApiTests(APITestCase):
 
     def test_private_workspace_poll_is_only_visible_to_workspace_members(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization,

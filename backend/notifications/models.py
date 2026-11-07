@@ -7,6 +7,7 @@ class Notification(models.Model):
     class Kind(models.TextChoices):
         COMMENT = "comment", "New comment"
         WORKSPACE_ADDED = "workspace_added", "Added to workspace"
+        ORGANIZATION_REVIEW = "organization_review", "Organization request reviewed"
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -20,7 +21,7 @@ class Notification(models.Model):
         null=True,
         blank=True,
     )
-    kind = models.CharField(max_length=20, choices=Kind.choices)
+    kind = models.CharField(max_length=24, choices=Kind.choices)
     message = models.CharField(max_length=240)
     organization = models.ForeignKey(
         "organizations.Organization",

@@ -20,7 +20,7 @@ class OrganizationApiTests(APITestCase):
             email="other@example.com", password="secure-test-password"
         )
 
-    def test_creator_becomes_owner_and_other_users_cannot_access_workspace(self):
+    def test_workspace_request_is_pending_and_not_accessible_before_review(self):
         self.client.force_authenticate(self.owner)
         created = self.client.post(
             "/api/v1/organizations/",
@@ -29,24 +29,128 @@ class OrganizationApiTests(APITestCase):
         )
 
         self.assertEqual(created.status_code, 201)
-        self.assertEqual(created.data["role"], Membership.Role.OWNER)
-        self.assertEqual(created.data["member_count"], 1)
-        self.assertTrue(
-            Membership.objects.filter(
-                organization__slug="northstar",
-                user=self.owner,
-                role=Membership.Role.OWNER,
-            ).exists()
+        self.assertEqual(created.data["status"], Organization.Status.PENDING)
+        self.assertIsNone(created.data["role"])
+        self.assertEqual(created.data["member_count"], 0)
+        self.assertFalse(Membership.objects.filter(organization__slug="northstar").exists())
+        self.assertEqual(
+            self.client.get("/api/v1/organizations/").data,
+            [],
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/organizations/applications/").data[0]["slug"],
+            "northstar",
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/v1/polls/",
+                {
+                    "title": "Restricted poll",
+                    "question": "Can I create this?",
+                    "organization": created.data["id"],
+                    "options": ["Yes", "No"],
+                },
+                format="json",
+            ).status_code,
+            403,
         )
 
         self.client.force_authenticate(self.other_user)
         self.assertEqual(
             self.client.get("/api/v1/organizations/northstar/").status_code, 404
         )
+        self.assertEqual(
+            self.client.get("/api/v1/organizations/applications/").data,
+            [],
+        )
+
+    def test_only_staff_can_review_and_approval_grants_owner_access(self):
+        application = Organization.objects.create(
+            name="Northstar",
+            slug="northstar",
+            description="A workspace",
+            created_by=self.owner,
+        )
+        self.client.force_authenticate(self.owner)
+        denied = self.client.post(
+            "/api/v1/organizations/northstar/review/",
+            {"status": Organization.Status.APPROVED, "reason": "Looks good."},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(
+            self.client.get("/api/v1/organizations/northstar/").status_code,
+            404,
+        )
+
+        reviewer = User.objects.create_user(
+            email="reviewer@example.com", password="secure-test-password", is_staff=True
+        )
+        self.client.force_authenticate(reviewer)
+        pending = self.client.get("/api/v1/organizations/applications/")
+        self.assertEqual([item["id"] for item in pending.data], [application.id])
+        approved = self.client.post(
+            "/api/v1/organizations/northstar/review/",
+            {"status": Organization.Status.APPROVED, "reason": "Verified."},
+            format="json",
+        )
+        self.assertEqual(approved.status_code, 200)
+        application.refresh_from_db()
+        self.assertEqual(application.status, Organization.Status.APPROVED)
+        self.assertEqual(application.reviewed_by, reviewer)
+        self.assertTrue(
+            Membership.objects.filter(
+                organization=application,
+                user=self.owner,
+                role=Membership.Role.OWNER,
+            ).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.owner,
+                kind=Notification.Kind.ORGANIZATION_REVIEW,
+                organization=application,
+            ).exists()
+        )
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(
+            self.client.get("/api/v1/organizations/northstar/").status_code,
+            200,
+        )
+
+    def test_rejection_requires_a_reason_and_does_not_grant_membership(self):
+        application = Organization.objects.create(
+            name="Northstar", slug="northstar", created_by=self.owner
+        )
+        reviewer = User.objects.create_user(
+            email="reviewer@example.com", password="secure-test-password", is_staff=True
+        )
+        self.client.force_authenticate(reviewer)
+        missing_reason = self.client.post(
+            "/api/v1/organizations/northstar/review/",
+            {"status": Organization.Status.REJECTED, "reason": ""},
+            format="json",
+        )
+        self.assertEqual(missing_reason.status_code, 400)
+        rejected = self.client.post(
+            "/api/v1/organizations/northstar/review/",
+            {"status": Organization.Status.REJECTED, "reason": "Could not verify."},
+            format="json",
+        )
+        self.assertEqual(rejected.status_code, 200)
+        self.assertEqual(rejected.data["review_reason"], "Could not verify.")
+        self.assertFalse(Membership.objects.filter(organization=application).exists())
+        second_review = self.client.post(
+            "/api/v1/organizations/northstar/review/",
+            {"status": Organization.Status.APPROVED, "reason": "Retry"},
+            format="json",
+        )
+        self.assertEqual(second_review.status_code, 404)
 
     def test_owner_can_add_existing_member_but_member_cannot_manage_members(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization, user=self.owner, role=Membership.Role.OWNER
@@ -76,7 +180,8 @@ class OrganizationApiTests(APITestCase):
 
     def test_workspace_with_activities_cannot_be_deleted(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization, user=self.owner, role=Membership.Role.OWNER
@@ -97,7 +202,8 @@ class OrganizationApiTests(APITestCase):
         from elections.models import Election
 
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization, user=self.owner, role=Membership.Role.OWNER
@@ -116,7 +222,8 @@ class OrganizationApiTests(APITestCase):
 
     def test_workspace_analytics_are_scoped_to_organization_administrators(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization, user=self.owner, role=Membership.Role.OWNER

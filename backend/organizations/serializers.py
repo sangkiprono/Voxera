@@ -31,11 +31,22 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "name",
             "slug",
             "description",
+            "status",
+            "review_reason",
+            "reviewed_at",
             "role",
             "member_count",
             "created_at",
         )
-        read_only_fields = ("id", "role", "member_count", "created_at")
+        read_only_fields = (
+            "id",
+            "status",
+            "review_reason",
+            "reviewed_at",
+            "role",
+            "member_count",
+            "created_at",
+        )
 
     def get_role(self, organization):
         membership = next(
@@ -53,8 +64,17 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return Organization.objects.create(
-            created_by=self.context["request"].user, **validated_data
+            created_by=self.context["request"].user,
+            status=Organization.Status.PENDING,
+            **validated_data,
         )
+
+
+class OrganizationReviewSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=(Organization.Status.APPROVED, Organization.Status.REJECTED)
+    )
+    reason = serializers.CharField(max_length=2000, allow_blank=False)
 
 
 class AddMemberSerializer(serializers.Serializer):

@@ -56,7 +56,7 @@ export interface ActivityComment {
 
 export interface Notification {
   id: number;
-  kind: "comment" | "workspace_added";
+  kind: "comment" | "workspace_added" | "organization_review";
   message: string;
   actor_name: string;
   organization_slug: string | null;
@@ -72,6 +72,9 @@ export interface Organization {
   name: string;
   slug: string;
   description: string;
+  status: "pending" | "approved" | "rejected";
+  review_reason: string;
+  reviewed_at: string | null;
   role: string;
   member_count: number;
   created_at: string;
@@ -84,6 +87,8 @@ export interface OrganizationMember {
   role: string;
   joined_at: string;
 }
+
+export interface OrganizationApplication extends Organization {}
 
 export interface OrganizationAnalytics {
   member_count: number;
@@ -449,6 +454,10 @@ export const api = {
 
   organizations() {
     return request<Organization[]>("/organizations/");
+  },
+
+  organizationApplications() {
+    return request<OrganizationApplication[]>("/organizations/applications/");
   },
 
   createOrganization(payload: {

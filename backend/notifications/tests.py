@@ -23,7 +23,8 @@ class NotificationApiTests(APITestCase):
             email="member@example.com", password="Test-password-42!"
         )
         self.organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         self.notification = Notification.objects.create(
             recipient=self.owner,

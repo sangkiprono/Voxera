@@ -27,6 +27,7 @@ function App() {
   const [polls, setPolls] = useState<Poll[]>([]);
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [organizationApplications, setOrganizationApplications] = useState<Organization[]>([]);
   const [view, setView] = useState<View>("discover");
   const [loading, setLoading] = useState(true);
   const [authRestored, setAuthRestored] = useState(false);
@@ -64,14 +65,16 @@ function App() {
     }
     setError("");
     try {
-      const [pollData, surveyData, organizationData] = await Promise.all([
+      const [pollData, surveyData, organizationData, applicationData] = await Promise.all([
         api.polls(),
         api.surveys(),
         user ? api.organizations() : Promise.resolve([]),
+        user ? api.organizationApplications() : Promise.resolve([]),
       ]);
       setPolls(pollData);
       setSurveys(surveyData);
       setOrganizations(organizationData);
+      setOrganizationApplications(applicationData);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -257,6 +260,7 @@ function App() {
       await api.logout();
       setUser(null);
       setOrganizations([]);
+      setOrganizationApplications([]);
       setNotifications([]);
       setUnreadNotifications(0);
       setNotificationsOpen(false);
@@ -323,13 +327,17 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await api.createOrganization({
+      const application = await api.createOrganization({
         name,
         slug,
         description: String(formData.get("description")).trim(),
       });
       setOrganizationFormOpen(false);
-      setNotice("Your workspace is ready.");
+      setNotice(
+        application.status === "pending"
+          ? "Your workspace request was submitted for review."
+          : "Your workspace is ready.",
+      );
       await loadData();
     } catch (organizationError) {
       setError(
@@ -884,7 +892,24 @@ function App() {
                     </div>
                   </article>
                 ))}
-                {!loading && organizations.length === 0 && (
+                {organizationApplications
+                  .filter((application) => application.status !== "approved")
+                  .map((application) => (
+                    <article className="workspace-card" key={application.id}>
+                      <span className="workspace-symbol">▦</span>
+                      <div className="workspace-card-copy">
+                        <h2>{application.name}</h2>
+                        <p>{application.description || "Organization workspace request"}</p>
+                      </div>
+                      <div className="workspace-meta">
+                        <span className={`role-pill ${application.status}`}>
+                          {application.status === "pending" ? "Pending review" : "Not approved"}
+                        </span>
+                        {application.review_reason && <span>{application.review_reason}</span>}
+                      </div>
+                    </article>
+                  ))}
+                {!loading && organizations.length === 0 && organizationApplications.length === 0 && (
                   <div className="empty-state wide-empty">
                     <span className="empty-icon">▦</span>
                     <h2>Your team’s next big idea starts here.</h2>

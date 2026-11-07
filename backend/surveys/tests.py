@@ -271,7 +271,8 @@ class SurveyApiTests(APITestCase):
 
     def test_private_surveys_and_reports_are_limited_to_workspace_managers(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization,
@@ -306,7 +307,8 @@ class SurveyApiTests(APITestCase):
 
     def test_workspace_members_only_see_published_private_surveys(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization,
@@ -349,7 +351,8 @@ class SurveyApiTests(APITestCase):
 
     def test_organization_survey_creation_requires_a_creator_role(self):
         organization = Organization.objects.create(
-            name="Northstar", slug="northstar", created_by=self.owner
+            name="Northstar", slug="northstar", created_by=self.owner,
+            status=Organization.Status.APPROVED,
         )
         Membership.objects.create(
             organization=organization,
